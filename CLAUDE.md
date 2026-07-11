@@ -43,7 +43,13 @@ system's shape follows from it.
 ```
 backend/           # API server
 frontend/          # Web UI
-infrastructure/    # IaC / deployment configs (Docker, migrations, etc.)
+mcp_servers/       # one FastMCP server per business unit + one shared — each
+                   # owns its own Alembic migrations (ADR-0016), colocated
+                   # since only that server ever connects to its database
+infrastructure/    # cross-cutting deployment config (docker-compose is at
+                   # root; this is for anything else infra-level, not
+                   # per-service schema migrations — those live in
+                   # mcp_servers/<unit>/alembic/)
 documents/          # Technical Design Document + business overview docs
 docker-compose.yaml
 README.md          # short description, tech stack rationale, build/run steps
@@ -66,7 +72,9 @@ summary, not the source of truth:
 - **MCP server framework**: FastMCP — one MCP server per business unit
   (KB search + SQL analytics tools) plus one shared MCP server (web search)
   — [ADR-0008](documents/adr/0008-mcp-server-framework.md)
-- **LLM provider**: Anthropic Claude — [ADR-0009](documents/adr/0009-llm-provider.md)
+- **LLM**: OpenAI `gpt-5.4-nano` via OpenRouter — [ADR-0009](documents/adr/0009-llm-provider.md),
+  [ADR-0015](documents/adr/0015-llm-embedding-gateway-openrouter.md),
+  [ADR-0018](documents/adr/0018-llm-model-change-gpt-5-4-nano.md)
 - **Web search provider**: Tavily — [ADR-0010](documents/adr/0010-web-search-provider.md)
 - **Object storage**: MinIO — one shared deployment, one bucket per business
   unit — [ADR-0011](documents/adr/0011-object-storage.md)
@@ -113,5 +121,22 @@ they share one MCP server, one database, one Qdrant collection. This
 correction was made during Q2 planning, before any code was written; the
 TDD and company profile have been updated accordingly.
 
-Not yet scaffolded otherwise — next is implementation: `backend/`,
-`frontend/`, `infrastructure/`, `docker-compose.yaml`.
+**Q2 implementation — phase 1 vertical slice complete and verified
+end-to-end**: MCN TV + the knowledge-base question flow (TDD §6.1) runs
+fully through `docker compose up` — chat UI → Backend API's ReAct agent →
+`mcp-tv` → Qdrant/Postgres → grounded, streamed, cited answer. Verified via
+real MCP protocol calls, a standalone agent-loop test, Postgres-checkpointer
+persistence across separate process runs, a Redis cache-hit test, `curl`
+against the live SSE endpoint, and a real headless-browser pass (screenshot
++ zero console errors). See root `README.md` for the full stack and how to
+run it, and `backend/CLAUDE.md` / `frontend/CLAUDE.md` / `mcp_servers/tv/CLAUDE.md`
+for phase-1 simplifications (dummy auth, KB seeding bypasses MinIO/Celery).
+3 new tech decisions surfaced during this phase and got their own ADRs
+rather than silent edits: OpenRouter as the LLM/embedding gateway
+(ADR-0015), Alembic for schema migrations (ADR-0016), SSE for streaming
+(ADR-0017), and a mid-build LLM model change to `gpt-5.4-nano` (ADR-0018).
+
+**Next**: phase 2 — replicate the same pattern to `mcp_servers/plus/` and
+`mcp_servers/news/`, add the shared web-search MCP server, the
+cross-business-unit flow, and the real MinIO+Celery ingestion pipeline
+(see TDD §11 and the "Not yet built" section of the README).

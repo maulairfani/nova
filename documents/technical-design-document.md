@@ -684,12 +684,16 @@ This section is the index.
 | [0006](adr/0006-cache.md) | Cache: Redis | Accepted |
 | [0007](adr/0007-async-worker-queue.md) | Async worker/queue: Celery + Redis | Accepted |
 | [0008](adr/0008-mcp-server-framework.md) | MCP server framework: FastMCP | Accepted (tentative on authorization details) |
-| [0009](adr/0009-llm-provider.md) | LLM provider: Anthropic Claude | Accepted |
+| [0009](adr/0009-llm-provider.md) | LLM provider: Anthropic Claude | Accepted; model changed to OpenAI `gpt-5.4-nano` by ADR-0018 |
 | [0010](adr/0010-web-search-provider.md) | Web search provider: Tavily | Accepted |
 | [0011](adr/0011-object-storage.md) | Object storage: MinIO | Accepted |
 | [0012](adr/0012-agent-orchestration-framework.md) | Agent orchestration framework: LangChain/LangGraph | Accepted |
 | [0013](adr/0013-agent-pattern.md) | Agent pattern: ReAct via `create_agent` | Accepted |
 | [0014](adr/0014-mcn-plus-unified-business-unit.md) | MCN+ streaming and shorts as one unified business unit (3 units total, not 4) | Accepted |
+| [0015](adr/0015-llm-embedding-gateway-openrouter.md) | LLM + embedding access via OpenRouter (single gateway) | Accepted |
+| [0016](adr/0016-database-migrations-alembic.md) | Database schema migrations: Alembic, per business-unit MCP server | Accepted |
+| [0017](adr/0017-streaming-transport-sse.md) | Streaming transport: Server-Sent Events | Accepted |
+| [0018](adr/0018-llm-model-change-gpt-5-4-nano.md) | LLM model changed to OpenAI `gpt-5.4-nano` (amends ADR-0009) | Accepted |
 
 ## 10. Quality Requirements
 

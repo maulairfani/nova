@@ -1,6 +1,10 @@
 # ADR-0009: LLM Provider — Anthropic Claude
 
-**Status:** Accepted
+**Status:** Accepted (model changed to OpenAI `gpt-5.4-nano` by
+[ADR-0018](0018-llm-model-change-gpt-5-4-nano.md) — this ADR's
+tool-calling/long-context reasoning and its explicit anticipation that
+provider swaps stay cheap thanks to LangChain's abstraction both still
+hold, only the specific model changed)
 
 ## Decision
 
