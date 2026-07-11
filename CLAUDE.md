@@ -7,11 +7,16 @@ Guidance for Claude Code (or any AI coding agent) working in this repository.
 **Nova** is an internal AI assistant for **MCN Group**, a media &
 entertainment conglomerate. Nova answers employee questions by drawing on:
 
-1. **Internal knowledge base** — Markdown documents (company info, SOPs,
+1. **Internal knowledge base** — documents (company info, SOPs,
    documentation) — retrieved via RAG.
-2. **Company data in PostgreSQL** — the single source of truth for analytics
-   and decision-making, queried via a data/analytics tool.
+2. **Company data**, owned per business unit — queried live via
+   text-to-SQL, no consolidated warehouse (see Data Mesh note below).
 3. **Web search** — for external knowledge not covered by internal sources.
+
+Full architecture and rationale: [`documents/technical-design-document.md`](documents/technical-design-document.md)
+and the ADRs under [`documents/adr/`](documents/adr/) — read those before
+making any non-trivial change here, since they're the source of truth for
+*why* the system is shaped this way.
 
 ## About MCN Group
 
@@ -27,6 +32,12 @@ All company details, documents, and data in this repo are fictional dummy
 content created for Nova's knowledge base and analytics demos. Nothing here
 represents a real company.
 
+**Data Mesh architecture:** each business unit owns its own analytics data
+and documents, exposed through its own MCP server — there is no
+centralized data warehouse. See ADR-0005 for the full rationale. This is
+the single most important architectural fact about Nova; most of the
+system's shape follows from it.
+
 ## Repository structure
 
 ```
@@ -38,21 +49,36 @@ docker-compose.yaml
 README.md          # short description, tech stack rationale, build/run steps
 ```
 
-## Tech stack (current plan)
+## Tech stack
 
-- **Backend**: Python (FastAPI) — strong RAG/LLM ecosystem, async support.
-- **Frontend**: Next.js (React) — chat UI, streaming responses.
-- **Database**: PostgreSQL (+ pgvector for embeddings) — doubles as the
-  analytics source of truth and the vector store for RAG.
-- **Cache**: Redis — response/session cache, also usable as a broker.
-- **Async worker / queue**: Redis + Celery (or arq) — for document ingestion,
-  embedding jobs, and long-running web search calls.
-- **MCP server**: expose internal tools (KB search, SQL analytics, web
-  search) as MCP tools so Nova's LLM agent calls them uniformly.
-- **Containerization**: Docker + docker-compose for local orchestration.
+Decided via ADRs under [`documents/adr/`](documents/adr/) — this is a
+summary, not the source of truth:
 
-Treat this list as a working default — update it (and `documents/`) if a
-choice changes.
+- **Backend**: Python (FastAPI) — [ADR-0001](documents/adr/0001-backend-framework.md)
+- **Frontend**: Next.js (React) — [ADR-0002](documents/adr/0002-frontend-framework.md)
+- **Relational DB**: PostgreSQL — one instance per business unit (domain-owned)
+  plus one shared `nova_kb` instance for conversation state — [ADR-0003](documents/adr/0003-relational-database.md)
+- **Vector DB**: Qdrant — one shared deployment, one collection per business
+  unit — [ADR-0004](documents/adr/0004-vector-database.md)
+- **Cache / broker**: Redis — [ADR-0006](documents/adr/0006-cache.md)
+- **Async worker**: Celery (+ Redis broker) — document ingestion pipeline,
+  shared across business units — [ADR-0007](documents/adr/0007-async-worker-queue.md)
+- **MCP server framework**: FastMCP — one MCP server per business unit
+  (KB search + SQL analytics tools) plus one shared MCP server (web search)
+  — [ADR-0008](documents/adr/0008-mcp-server-framework.md)
+- **LLM provider**: Anthropic Claude — [ADR-0009](documents/adr/0009-llm-provider.md)
+- **Web search provider**: Tavily — [ADR-0010](documents/adr/0010-web-search-provider.md)
+- **Object storage**: MinIO — one shared deployment, one bucket per business
+  unit — [ADR-0011](documents/adr/0011-object-storage.md)
+- **Agent framework**: LangChain/LangGraph, ReAct pattern via
+  `langchain.agents.create_agent` — [ADR-0012](documents/adr/0012-agent-orchestration-framework.md),
+  [ADR-0013](documents/adr/0013-agent-pattern.md)
+- **Containerization**: Docker + docker-compose — single host for this
+  build (Section 7 of the TDD)
+
+If a choice changes during implementation, update the corresponding ADR
+(new ADR that supersedes it — never silently edit an accepted one) and
+this summary.
 
 ## Working conventions
 
@@ -73,5 +99,12 @@ choice changes.
 
 ## Status
 
-Not yet scaffolded. Next: business overview document, then the Technical
-Design Document, then implementation.
+Technical Design Document complete and ready for review
+(`documents/technical-design-document.md`, 13 ADRs under `documents/adr/`).
+No open design questions remain — FastMCP's authorization mechanism
+(ADR-0008) is resolved: callable-based auth checks, one check function per
+business unit MCP server. Remaining authorization work is
+implementation-level only (writing/testing each unit's actual rules, see
+TDD Section 11), not a design gap. Not yet scaffolded otherwise — next is
+implementation: `backend/`, `frontend/`, `infrastructure/`,
+`docker-compose.yaml`.
