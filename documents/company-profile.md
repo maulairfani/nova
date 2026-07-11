@@ -8,9 +8,11 @@ streaming, and news under one group, MCN Group reaches audiences across
 free-to-air television, on-demand streaming, short-form video, and digital
 news.
 
-MCN Group operates four business units, each serving a distinct audience
+MCN Group operates three business units, each serving a distinct audience
 and revenue model, while sharing common back-office functions (HR, Finance,
-IT, Legal) at the group level.
+IT, Legal) at the group level. One of these units, MCN+, spans two
+products (OTT streaming and short-form micro-drama) under a single P&L and
+leadership team.
 
 ## Vision
 
@@ -42,11 +44,17 @@ program ratings and audience share.
 - **Key metric**: Viewership rating / audience share per program, per time
   slot.
 
-### 2. MCN+ — OTT Streaming Platform
+### 2. MCN+ — Streaming & Short-Form Video
 
-MCN+ is MCN Group's subscription video-on-demand (SVOD) platform, offering
-a content library of MCN-produced series, licensed movies, and exclusive
-originals, alongside simulcast of select MCN TV programs.
+MCN+ is MCN Group's digital video business unit, run as one P&L under one
+director, spanning two distinct products that share subscriber and
+content-licensing operations: a subscription streaming platform and a
+short-form micro-drama app.
+
+**Product: MCN+ (OTT Streaming)** — a subscription video-on-demand (SVOD)
+platform offering a content library of MCN-produced series, licensed
+movies, and exclusive originals, alongside simulcast of select MCN TV
+programs.
 
 - **Audience**: Digitally-native viewers seeking on-demand, ad-light
   content.
@@ -55,12 +63,11 @@ originals, alongside simulcast of select MCN TV programs.
 - **Key metric**: Active subscribers, watch time, content completion rate,
   churn rate.
 
-### 3. MCN+ Shorts — Micro-Drama / Vertical Short-Form Video
-
-MCN+ Shorts is a vertical, mobile-first short-form drama product distributed
-through its own app and social channels. Content is produced in short
-episodes (1–3 minutes) optimized for mobile viewing, following the
-micro-drama format popularized across Asian markets.
+**Product: MCN+ Shorts (Micro-Drama)** — a vertical, mobile-first
+short-form drama product distributed through its own app and social
+channels. Content is produced in short episodes (1–3 minutes) optimized
+for mobile viewing, following the micro-drama format popularized across
+Asian markets.
 
 - **Audience**: Mobile-first, younger demographic, high-frequency short
   session viewers.
@@ -70,7 +77,7 @@ micro-drama format popularized across Asian markets.
 - **Key metric**: Coin purchase revenue, episode unlock rate, completion
   rate per title.
 
-### 4. MCN News — News Media Division
+### 3. MCN News — News Media Division
 
 MCN News operates MCN Group's news properties across TV news broadcasts,
 a news website, and a news mobile app, covering national, business, and
@@ -87,8 +94,9 @@ regional news.
 ```
 CEO, MCN Group
 ├── Director, MCN TV
-├── Director, MCN+ (OTT)
-├── Director, MCN+ Shorts
+├── Director, MCN+
+│   ├── Head of Streaming (OTT)
+│   └── Head of Shorts (Micro-Drama)
 ├── Director, MCN News
 └── Group Functions (shared across all units)
     ├── Group HR
@@ -106,11 +114,11 @@ MCN Group competes in a media landscape where:
 
 - **FTA TV** competes for advertiser budgets against other national
   broadcasters, with success driven by program ratings.
-- **MCN+** competes with both local and global SVOD platforms for
-  subscriber attention and retention.
-- **MCN+ Shorts** competes in the fast-growing micro-drama app category,
-  where user acquisition and monetization speed matter more than catalog
-  depth.
+- **MCN+** competes on two fronts under one P&L: its streaming product
+  against local and global SVOD platforms for subscriber attention and
+  retention, and its Shorts product in the fast-growing micro-drama app
+  category, where user acquisition and monetization speed matter more than
+  catalog depth.
 - **MCN News** competes with other digital news outlets for traffic and
   reader trust, alongside broadcast news competitors.
 

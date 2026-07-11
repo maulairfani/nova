@@ -20,13 +20,13 @@ making any non-trivial change here, since they're the source of truth for
 
 ## About MCN Group
 
-MCN Group is a fictional media & entertainment conglomerate with four
+MCN Group is a fictional media & entertainment conglomerate with three
 business units:
 
 1. **MCN TV** — Free-to-Air (FTA) broadcasting
-2. **MCN+** — OTT streaming platform
-3. **MCN+ Shorts** — micro-drama / vertical short-form video
-4. **MCN News** — news media division
+2. **MCN+** — one business unit spanning two products: OTT streaming and
+   MCN+ Shorts (micro-drama / vertical short-form video) — see ADR-0014
+3. **MCN News** — news media division
 
 All company details, documents, and data in this repo are fictional dummy
 content created for Nova's knowledge base and analytics demos. Nothing here
@@ -100,11 +100,18 @@ this summary.
 ## Status
 
 Technical Design Document complete and ready for review
-(`documents/technical-design-document.md`, 13 ADRs under `documents/adr/`).
+(`documents/technical-design-document.md`, 14 ADRs under `documents/adr/`).
 No open design questions remain — FastMCP's authorization mechanism
 (ADR-0008) is resolved: callable-based auth checks, one check function per
 business unit MCP server. Remaining authorization work is
 implementation-level only (writing/testing each unit's actual rules, see
-TDD Section 11), not a design gap. Not yet scaffolded otherwise — next is
-implementation: `backend/`, `frontend/`, `infrastructure/`,
-`docker-compose.yaml`.
+TDD Section 11), not a design gap.
+
+**Business-unit count corrected from 4 to 3** (ADR-0014): MCN+ and MCN+
+Shorts are one business unit with two products, not two separate units —
+they share one MCP server, one database, one Qdrant collection. This
+correction was made during Q2 planning, before any code was written; the
+TDD and company profile have been updated accordingly.
+
+Not yet scaffolded otherwise — next is implementation: `backend/`,
+`frontend/`, `infrastructure/`, `docker-compose.yaml`.

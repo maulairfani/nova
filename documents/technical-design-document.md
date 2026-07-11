@@ -102,7 +102,7 @@ linked above — the table below is the applied result.
 
 | Stakeholder | Description | Expectations |
 |---|---|---|
-| **Users** | Employees across MCN TV, MCN+, MCN+ Shorts, MCN News, and Group Functions | Fast, accurate answers without needing to search manually or write SQL themselves |
+| **Users** | Employees across MCN TV, MCN+ (streaming & shorts), MCN News, and Group Functions | Fast, accurate answers without needing to search manually or write SQL themselves |
 | **Data/Content Owners** | Business units that own the SOPs, documents, and data Nova retrieves from | Their content is represented accurately; sensitive data isn't exposed beyond its intended audience |
 | **Platform/Engineering Team** | Builds, deploys, maintains, tests, and supports Nova (consolidates Developers, Maintainers, Production Engineers, Support Staff, System Administrators, Testers, and Communicators) | System stays maintainable and extensible as KB documents and data sources grow; observable enough to debug issues quickly |
 | **External Providers** *(LLM provider, web search API, hosting/cloud infrastructure)* | External parties Nova depends on to function | *Not an expectation on the architecture — the reverse: the architecture must account for their limitations (rate limits, downtime, latency) as an external dependency.* |
@@ -138,9 +138,11 @@ Nova's external communication partners, from a business/domain perspective
 **Guiding principle: Data Mesh.** Rather than treating MCN Group's data as
 one centralized warehouse, Nova follows
 [Data Mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
-thinking: each business unit (MCN TV, MCN+, MCN+ Shorts, MCN News) owns and
+thinking: each business unit (MCN TV, MCN+, MCN News) owns and
 serves its own data as a product, rather than a central data team owning
-everything. Concretely, each business unit has its **own analytics data
+everything. MCN+ itself spans two products (OTT streaming and Shorts
+micro-drama) but is one business unit/data domain, not two (ADR-0014).
+Concretely, each business unit has its **own analytics data
 source and its own document repository** — there is no pre-consolidated,
 single warehouse. When a question needs data from more than one business
 unit, that federation happens at query time, in Nova's agent (Section 5),
@@ -153,13 +155,13 @@ ownership, and for better failure isolation between business units
 (Reliability, Section 1.2).
 
 Visualized as a [C4](reference/c4-model.md) System Context diagram — the
-"Business Unit Data Domain" box repeats once per business unit (×4):
+"Business Unit Data Domain" box repeats once per business unit (×3):
 
 ```mermaid
 flowchart TB
     Employee["<b>Employee</b><br/><i>Person</i><br/>MCN Group employee<br/>across all business units"]
     Nova["<b>Nova</b><br/><i>Software System</i><br/>Internal AI assistant"]
-    BUDomain["<b>Business Unit Data Domain</b><br/><i>Existing data + documents</i><br/>×4 — one per business unit<br/>(MCN TV, MCN+, MCN+ Shorts, MCN News)<br/>each owns its own analytics data<br/>and document repository"]
+    BUDomain["<b>Business Unit Data Domain</b><br/><i>Existing data + documents</i><br/>×3 — one per business unit<br/>(MCN TV, MCN+ [streaming + shorts], MCN News)<br/>each owns its own analytics data<br/>and document repository"]
 
     subgraph MCN["MCN Group"]
         Employee
@@ -187,7 +189,7 @@ flowchart TB
 | Partner | Role |
 |---|---|
 | **Employee** | Primary user — asks questions via the chat interface, receives answers |
-| **Business Unit Data Domain** *(×4 — MCN TV, MCN+, MCN+ Shorts, MCN News)* | Each business unit's existing analytics data and document repository, owned and governed by that unit; Nova queries analytics live and ingests documents per business unit — no shared central warehouse |
+| **Business Unit Data Domain** *(×3 — MCN TV, MCN+ [streaming + shorts], MCN News)* | Each business unit's existing analytics data and document repository, owned and governed by that unit; Nova queries analytics live and ingests documents per business unit — no shared central warehouse |
 | **Web Search Service** *(external)* | Supplies external knowledge when internal sources (KB, data) don't have the answer — an explicit functional requirement, not an optional add-on |
 | **AI/LLM Service** *(external)* | Understands questions and generates Nova's answers |
 
@@ -249,11 +251,14 @@ SQL analytics tools, scoped to that unit) → that unit's data. What's
 **shared infrastructure** (Data Mesh's "self-serve data platform" —
 common tooling, not domain-specific) is deliberately different:
 
-- Domain-owned (×4, one per business unit): MCP Server, PostgreSQL instance
+- Domain-owned (×3, one per business unit): MCP Server, PostgreSQL instance
   (that unit's analytics data), a Qdrant *collection* (that unit's KB
-  vectors — a shared Qdrant deployment, logically partitioned, not 4
+  vectors — a shared Qdrant deployment, logically partitioned, not 3
   separate Qdrant instances) and a MinIO *bucket* (that unit's documents —
-  same reasoning, one shared MinIO deployment, separated by bucket).
+  same reasoning, one shared MinIO deployment, separated by bucket). MCN+'s
+  instance covers both its streaming and shorts products (ADR-0014) —
+  internally separated by table/schema and payload metadata, not by a
+  second MCP server or database.
 - Shared infrastructure: Frontend, Backend API, Redis (cache/broker), the
   async worker (ingestion pipeline, reused across all business units'
   buckets/collections), and a separate `nova_kb` PostgreSQL instance for
@@ -296,7 +301,7 @@ flowchart TB
         Frontend["<b>Frontend</b><br/><i>Next.js</i><br/>Chat UI"]
         BackendAPI["<b>Backend API</b><br/><i>FastAPI + LangGraph</i><br/>ReAct agent orchestration"]
 
-        subgraph BU["Business Unit Data Domain (×4)"]
+        subgraph BU["Business Unit Data Domain (×3)"]
             BUMcp["<b>Business Unit MCP Server</b><br/><i>FastMCP</i><br/>KB search + SQL analytics<br/>tools, scoped to this unit"]
             BUDb["<b>PostgreSQL</b><br/><i>this unit's analytics data</i>"]
         end
@@ -340,9 +345,9 @@ flowchart TB
 ```
 
 Color coding: **amber/dashed** = domain-owned, one full instance per
-business unit (×4); **green/dotted** = single shared deployment,
+business unit (×3); **green/dotted** = single shared deployment,
 logically partitioned per business unit (Qdrant collections, MinIO
-buckets — not 4 separate instances; `nova_kb` is Nova's own operational
+buckets — not 3 separate instances; `nova_kb` is Nova's own operational
 state, not business-unit data at all); **blue** = ordinary shared
 infrastructure. Full breakdown in the table below. All of these are
 deployed by us for this build, standing in for what would be genuinely
@@ -352,8 +357,8 @@ external/domain-owned systems in a real MCN Group deployment (Section 3).
 |---|---|---|---|
 | Frontend | Next.js (React) | Chat UI — sends messages, renders streamed responses | Shared |
 | Backend API | FastAPI, LangChain/LangGraph (`create_agent`, ReAct pattern) | Orchestrates the agent: reasoning, calls one or more business units' MCP servers plus the shared MCP server, LLM calls, persists conversation state | Shared |
-| Business Unit MCP Server *(×4)* | FastMCP *(tentative)* | Exposes KB search + SQL analytics tools scoped to one business unit; enforces that unit's own authorization rules (Section 8) | **Domain-owned** |
-| PostgreSQL *(×4, one per business unit)* | PostgreSQL | That business unit's analytics data, queried live, read-oriented | **Domain-owned** |
+| Business Unit MCP Server *(×3)* | FastMCP *(tentative)* | Exposes KB search + SQL analytics tools scoped to one business unit; enforces that unit's own authorization rules (Section 8). MCN+'s server covers both its streaming and shorts products (ADR-0014) | **Domain-owned** |
+| PostgreSQL *(×3, one per business unit)* | PostgreSQL | That business unit's analytics data, queried live, read-oriented. MCN+'s instance holds separate tables per product (streaming, shorts) | **Domain-owned** |
 | Shared MCP Server | FastMCP *(tentative)* | Exposes the web search tool — not owned by any business unit | Shared |
 | Qdrant | Qdrant | Vector store for KB embeddings; one collection per business unit | Shared deployment, domain-partitioned |
 | Object Storage | MinIO *(tentative)* | Raw source documents; one bucket per business unit | Shared deployment, domain-partitioned |
@@ -371,7 +376,7 @@ External (genuinely external — not deployed as part of this system):
 ### 5.2 Level 2
 
 Zooming into the containers with the most internal logic worth explaining:
-**Backend API** and a **Business Unit MCP Server** (all four follow the
+**Backend API** and a **Business Unit MCP Server** (all three follow the
 same internal shape, so one component diagram represents all of them). The
 other containers (Frontend, Redis, Async Worker, the databases) are simple
 enough at their container-level description in 5.1 that a further
@@ -422,6 +427,12 @@ flowchart TB
 | Authorization Middleware | Enforces this business unit's own per-user access rules before a tool call executes — rules differ by unit since roles differ (Section 8) |
 | KB Search Tool | Embeds the query, searches this unit's Qdrant collection, retrieves matching chunks + metadata |
 | SQL Analytics Tool | Translates the question into SQL, executes it read-only against this unit's PostgreSQL instance |
+
+For MCN+, both tools operate across its two products (streaming, shorts)
+within its single collection/database — the KB Search Tool can filter by
+a `product` payload field, and the SQL Analytics Tool selects the
+appropriate product's tables, since the two products' schemas differ
+(ADR-0014).
 
 The Shared MCP Server follows the same shape, but with a single **Web
 Search Tool** in place of the KB/SQL tools, and simpler authorization
@@ -567,13 +578,9 @@ flowchart TB
             mcp_tv["mcp-tv"]
             db_tv["postgres-tv"]
         end
-        subgraph Plus["MCN+"]
+        subgraph Plus["MCN+ (streaming + shorts)"]
             mcp_plus["mcp-plus"]
             db_plus["postgres-plus"]
-        end
-        subgraph Shorts["MCN+ Shorts"]
-            mcp_shorts["mcp-shorts"]
-            db_shorts["postgres-shorts"]
         end
         subgraph News["MCN News"]
             mcp_news["mcp-news"]
@@ -593,9 +600,9 @@ flowchart TB
 |---|---|---|
 | `frontend` | Next.js | Exposed to employees via reverse proxy/load balancer (not shown — out of scope for this build) |
 | `backend-api` | FastAPI + LangGraph | Connects to all MCP servers, LLM API, Redis, `postgres-nova-kb` |
-| `mcp-tv`, `mcp-plus`, `mcp-shorts`, `mcp-news` | FastMCP *(×4)* | Each connects only to its own `postgres-<unit>` and its own Qdrant collection/MinIO bucket |
+| `mcp-tv`, `mcp-plus`, `mcp-news` | FastMCP *(×3)* | Each connects only to its own `postgres-<unit>` and its own Qdrant collection/MinIO bucket; `mcp-plus` covers both the streaming and shorts products (ADR-0014) |
 | `shared-mcp` | FastMCP | Connects to the external Web Search Service |
-| `postgres-tv`, `postgres-plus`, `postgres-shorts`, `postgres-news` | PostgreSQL *(×4)* | One per business unit, domain-owned |
+| `postgres-tv`, `postgres-plus`, `postgres-news` | PostgreSQL *(×3)* | One per business unit, domain-owned; `postgres-plus` holds separate tables per product |
 | `postgres-nova-kb` | PostgreSQL | Shared — conversation state |
 | `qdrant` | Qdrant | Shared — one collection per business unit |
 | `minio` | MinIO | Shared — one bucket per business unit |
@@ -621,7 +628,7 @@ Nova one uniform interface regardless of how many business units exist or
 how their internal implementations differ — the ReAct agent only needs to
 know "call this tool with this input," not the details of Qdrant queries
 or SQL generation. It's also what makes the Data Mesh's per-business-unit
-ownership practical: adding a 5th business unit later means standing up
+ownership practical: adding a 4th business unit later means standing up
 one more MCP server that speaks the same protocol, not touching the
 agent's code.
 
@@ -673,7 +680,7 @@ This section is the index.
 | [0002](adr/0002-frontend-framework.md) | Frontend framework: Next.js | Accepted |
 | [0003](adr/0003-relational-database.md) | Relational database: PostgreSQL | Accepted |
 | [0004](adr/0004-vector-database.md) | Vector database: Qdrant | Accepted |
-| [0005](adr/0005-data-mesh-per-business-unit-architecture.md) | **Data Mesh: per-business-unit MCP servers and databases** | Accepted — highest blast-radius decision in this document |
+| [0005](adr/0005-data-mesh-per-business-unit-architecture.md) | **Data Mesh: per-business-unit MCP servers and databases** | Accepted — highest blast-radius decision in this document; business-unit list amended by ADR-0014 |
 | [0006](adr/0006-cache.md) | Cache: Redis | Accepted |
 | [0007](adr/0007-async-worker-queue.md) | Async worker/queue: Celery + Redis | Accepted |
 | [0008](adr/0008-mcp-server-framework.md) | MCP server framework: FastMCP | Accepted (tentative on authorization details) |
@@ -682,6 +689,7 @@ This section is the index.
 | [0011](adr/0011-object-storage.md) | Object storage: MinIO | Accepted |
 | [0012](adr/0012-agent-orchestration-framework.md) | Agent orchestration framework: LangChain/LangGraph | Accepted |
 | [0013](adr/0013-agent-pattern.md) | Agent pattern: ReAct via `create_agent` | Accepted |
+| [0014](adr/0014-mcn-plus-unified-business-unit.md) | MCN+ streaming and shorts as one unified business unit (3 units total, not 4) | Accepted |
 
 ## 10. Quality Requirements
 
@@ -709,14 +717,14 @@ scope, ~2,400 active users, ~120 concurrent at peak, ~12,000 queries/day):
 | 2 | Response Latency | Under 120 concurrent users, P95 time-to-first-streamed-token must be < 3 seconds. A repeated/cached query must respond in < 500ms. |
 | 3 | Reliability | If one business unit's MCP server or database becomes unavailable, questions directed at other business units and the KB must still succeed — no cascading failure. An ingestion failure for one business unit's documents must not block another unit's ingestion. |
 | 4 | Security | An employee without an assigned role for Business Unit X receives an authorization-denied response when Nova attempts to query Unit X's MCP server, with zero data returned. |
-| 5 | Maintainability | Onboarding a 5th business unit (new MCP server + database) requires no code changes to the Backend API's agent orchestration logic — only registering/configuring the new MCP server. |
+| 5 | Maintainability | Onboarding a 4th business unit (new MCP server + database) requires no code changes to the Backend API's agent orchestration logic — only registering/configuring the new MCP server. |
 
 ## 11. Risks and Technical Debt
 
 | Risk / Debt | Description | Mitigation / Status |
 |---|---|---|
 | Cross-business-unit synthesis accuracy | Federated queries (Section 6.3) are now combined by the agent at runtime instead of a pre-joined warehouse query — a wrong synthesis threatens the Groundedness/Accuracy goal more directly than a SQL JOIN would (ADR-0005) | Mitigated by prompt design and evaluation of multi-tool scenarios; not yet load/quality-tested — flagged as follow-up work |
-| Operational overhead of the Data Mesh split | 4 business-unit MCP servers + 4 databases (ADR-0005) is significantly more to run/monitor than a single consolidated service, for a small Platform/Engineering team (Section 2 constraint) | Accepted trade-off for Reliability/isolation (ADR-0005); mitigated by all 4 MCP servers following an identical template (Section 5.2), so operational patterns are repeatable rather than bespoke per unit |
+| Operational overhead of the Data Mesh split | 3 business-unit MCP servers + 3 databases (ADR-0005, ADR-0014) is more to run/monitor than a single consolidated service, for a small Platform/Engineering team (Section 2 constraint) | Accepted trade-off for Reliability/isolation (ADR-0005); mitigated by all 3 MCP servers following an identical template (Section 5.2), so operational patterns are repeatable rather than bespoke per unit |
 | Vector DB / object storage not load-tested at estimated scale | Qdrant and MinIO were chosen based on published benchmarks and research (ADR-0004, ADR-0011), not tested against MCN Group's own estimated usage (Section 1.2: ~12,000 queries/day, ~120 concurrent) | Follow-up work: load test before a production rollout |
 | Authorization checks not yet implemented/tested | The mechanism is decided (FastMCP callable-based auth checks, Section 8, ADR-0008) but each business unit's actual role/claim rules haven't been written or tested yet | Follow-up work: implement each unit's check function and verify against Quality Scenario 4 (Section 10.2) before the Security quality goal can be considered met |
 | Single Docker host deployment (Section 7) | The current deployment view runs everything on one Docker host — this itself is a reliability/scale simplification appropriate for this build's scope, not a production topology | Acceptable for the current rollout (Section 2); a production deployment would need orthogonal scaling/redundancy per service, out of scope here |

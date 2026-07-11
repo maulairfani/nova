@@ -1,14 +1,16 @@
 # ADR-0005: Data Mesh — Per-Business-Unit MCP Servers and Databases
 
 **Status:** Accepted (supersedes an earlier single-consolidated-warehouse
-design used in early drafts of Sections 3-5)
+design used in early drafts of Sections 3-5; business-unit list amended by
+[ADR-0014](0014-mcn-plus-unified-business-unit.md) — MCN+ streaming and
+shorts are one business unit, not two, so this is 3 business units, not 4)
 
 ## Decision
 
 Reject a single, consolidated analytics warehouse and a single shared MCP
 server. Instead, adopt a
 [Data Mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
-architecture: each business unit (MCN TV, MCN+, MCN+ Shorts, MCN News) owns
+architecture: each business unit (MCN TV, MCN+, MCN News) owns
 and serves its own analytics data and knowledge base documents, exposed
 through its own dedicated MCP server. Cross-business-unit questions are
 answered by the agent calling multiple business units' MCP servers and
@@ -66,9 +68,9 @@ capability.
 
 - Positive: better failure isolation (Reliability); authorization rules can
   genuinely differ per business unit without special-casing a shared
-  server; adding a 5th business unit later means replicating an existing
+  server; adding a 4th business unit later means replicating an existing
   template, not modifying shared code (Maintainability).
-- Negative: significantly more operational surface — 4 MCP servers and 4
+- Negative: significantly more operational surface — 3 MCP servers and 3
   PostgreSQL instances instead of 1 of each — for a small Platform/
   Engineering team (Section 2 constraint) to run and monitor. Recorded as
   an accepted risk in Section 11.
