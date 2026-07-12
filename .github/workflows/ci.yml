@@ -62,6 +62,13 @@ jobs:
       - name: Install dependencies
         working-directory: mcp_servers/${{ matrix.unit }}
         run: pip install -r requirements.txt -r ../../requirements-test.txt
+      - name: Copy common/ alongside the unit's code
+        # Mirrors each unit's Dockerfile (COPY common ./common) — auth.py
+        # imports `from common.auth import AuthContext`, which only
+        # resolves when common/ sits next to the unit's own files, same
+        # as the built image's layout, not the repo's sibling-directory
+        # layout.
+        run: cp -r mcp_servers/common mcp_servers/${{ matrix.unit }}/common
       - name: Run unit tests
         working-directory: mcp_servers/${{ matrix.unit }}
         run: pytest tests/ -v
