@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # Dummy values shared across unit-test jobs — none of these are actually
+  # reached over the network by a unit test; they only need to satisfy
+  # pydantic-settings' required-field validation at import time.
+  POSTGRES_TV_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+  POSTGRES_TV_URL: postgresql+asyncpg://x:x@localhost/x
+  TV_DB_READONLY_PASSWORD: x
+  POSTGRES_PLUS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+  POSTGRES_PLUS_URL: postgresql+asyncpg://x:x@localhost/x
+  PLUS_DB_READONLY_PASSWORD: x
+  POSTGRES_NEWS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+  POSTGRES_NEWS_URL: postgresql+asyncpg://x:x@localhost/x
+  NEWS_DB_READONLY_PASSWORD: x
+  QDRANT_URL: http://localhost:6333
+  MCP_TV_URL: http://localhost:9001/mcp
+  MCP_PLUS_URL: http://localhost:9002/mcp
+  MCP_NEWS_URL: http://localhost:9003/mcp
+  MCP_SHARED_URL: http://localhost:9004/mcp
+  NOVA_KB_DATABASE_URL: postgresql://x:x@localhost/x
+  OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
+  TAVILY_API_KEY: tvly-dummy-for-unit-tests
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt -r ../requirements-test.txt
+      - name: Run unit tests
+        working-directory: backend
+        run: pytest tests/ -v -m "not integration"
+
+  test-mcp-servers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        unit: [tv, plus, news, shared]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: mcp_servers/${{ matrix.unit }}
+        run: pip install -r requirements.txt -r ../../requirements-test.txt
+      - name: Run unit tests
+        working-directory: mcp_servers/${{ matrix.unit }}
+        run: pytest tests/ -v
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+          - service: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+          - service: mcp-tv
+            context: ./mcp_servers
+            dockerfile: ./mcp_servers/tv/Dockerfile
+          - service: mcp-plus
+            context: ./mcp_servers
+            dockerfile: ./mcp_servers/plus/Dockerfile
+          - service: mcp-news
+            context: ./mcp_servers
+            dockerfile: ./mcp_servers/news/Dockerfile
+          - service: mcp-shared
+            context: ./mcp_servers
+            dockerfile: ./mcp_servers/shared/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.service }} (no push — confirms it still builds)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run build
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-mcp-servers, build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write .env for the compose stack
+        run: |
+          cat <<EOF > .env
+          TV_DB_USER=nova_tv
+          TV_DB_PASSWORD=ci_dummy
+          TV_DB_READONLY_PASSWORD=ci_dummy
+          PLUS_DB_USER=nova_plus
+          PLUS_DB_PASSWORD=ci_dummy
+          PLUS_DB_READONLY_PASSWORD=ci_dummy
+          NEWS_DB_USER=nova_news
+          NEWS_DB_PASSWORD=ci_dummy
+          NEWS_DB_READONLY_PASSWORD=ci_dummy
+          NOVA_KB_DB_USER=nova_kb
+          NOVA_KB_DB_PASSWORD=ci_dummy
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_LLM_MODEL=openai/gpt-5.4-nano
+          OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
+          TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
+          EOF
+      - name: Bring up the stack
+        run: docker compose up -d --build
+      - name: MCN TV — migrate + seed (only unit exercised by the integration test)
+        run: |
+          docker compose run --rm mcp-tv alembic upgrade head
+          docker compose run --rm mcp-tv python -m seed.seed_postgres
+          docker compose run --rm mcp-tv python -m seed.seed_qdrant
+      - name: Set up the conversation-checkpoint tables
+        run: docker compose run --rm backend-api python setup_checkpointer.py
+      - name: Run the integration test
+        run: |
+          docker compose run --rm -v "$PWD/requirements-test.txt:/requirements-test.txt:ro" backend-api sh -c \
+            "pip install -q -r /requirements-test.txt && pytest tests/ -v -m integration"
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

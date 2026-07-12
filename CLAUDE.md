@@ -127,8 +127,7 @@ fully through `docker compose up` — chat UI → Backend API's ReAct agent →
 `mcp-tv` → Qdrant/Postgres → grounded, streamed, cited answer. Verified via
 real MCP protocol calls, a standalone agent-loop check, Postgres-checkpointer
 persistence across separate process runs, a Redis cache-hit check, `curl`
-against the live SSE endpoint, and a real headless-browser pass (screenshot
-+ zero console errors). 3 new tech decisions surfaced during this phase and
+against the live SSE endpoint, and a real headless-browser pass (screenshot + zero console errors). 3 new tech decisions surfaced during this phase and
 got their own ADRs rather than silent edits: OpenRouter as the LLM/embedding
 gateway (ADR-0015), Alembic for schema migrations (ADR-0016), SSE for
 streaming (ADR-0017), and a mid-build LLM model change to `gpt-5.4-nano`
@@ -191,8 +190,25 @@ cited, streamed answer — alongside a re-run of all 3 business units
 confirming no regression. Also exposed each business-unit Postgres on the
 host (`5433`–`5436`) for direct DB-client access (e.g. DBeaver).
 
+**GitHub Actions CI/CD + production deployment — complete and verified
+locally (ADR-0019)**: this project's first test suite (`ci.yml`) covers
+unit tests for `backend/` and all 4 `mcp_servers/*/` (24 + 10 tests,
+including permanent regression tests for the two real bugs found during
+phase 2/shared-server work — tool-scoping crash and tool name collisions)
+plus one real integration test hitting a live chat request end-to-end. All
+tests run and pass locally before being wired into workflow YAML.
+`release.yml` (tag-triggered `v*.*.*`) builds and pushes all 6 images to
+GHCR, then deploys over SSH to the user's own VM behind **Caddy**
+(automatic TLS for a real domain) via `docker-compose.prod.yml`. Both
+`docker-compose.prod.yml` and the `Caddyfile` were validated locally
+(`docker compose config`, `caddy validate`) — the SSH/DNS parts can't be
+verified from here and depend on the user adding GitHub secrets
+(`VM_HOST`, `VM_USER`, `VM_SSH_KEY`, `VM_DEPLOY_PATH`,
+`OPENROUTER_API_KEY`, `TAVILY_API_KEY`) and DNS A records for
+`DOMAIN_FRONTEND`/`DOMAIN_API`. TDD §7 (deployment view), §9 (ADR index),
+and §11 (risks) updated accordingly.
+
 **Next**: the cross-business-unit synthesis flow (TDD §6.3, now
 practical to build since 2+ live business units and the shared server both
-exist), the real MinIO+Celery ingestion pipeline (each unit currently
-bypasses it with a one-off seed script), and GitHub Actions CI/CD (see TDD
-§11 and the "Not yet built" section of the README).
+exist), and the real MinIO+Celery ingestion pipeline (each unit currently
+bypasses it with a one-off seed script).

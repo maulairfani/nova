@@ -1,0 +1,5 @@
+# Test-only dependencies — never installed into production images, only
+# used by CI (.github/workflows/ci.yml) and local test runs.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

@@ -1,0 +1,157 @@
+services:
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/nova-frontend:${TAG:-latest}
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: https://${DOMAIN_API}
+    depends_on:
+      - backend-api
+
+  backend-api:
+    image: ghcr.io/${GHCR_OWNER}/nova-backend:${TAG:-latest}
+    environment:
+      MCP_TV_URL: http://mcp-tv:9001/mcp
+      MCP_PLUS_URL: http://mcp-plus:9002/mcp
+      MCP_NEWS_URL: http://mcp-news:9003/mcp
+      MCP_SHARED_URL: http://mcp-shared:9004/mcp
+      NOVA_KB_DATABASE_URL: postgresql://${NOVA_KB_DB_USER}:${NOVA_KB_DB_PASSWORD}@postgres-nova-kb:5432/nova_kb
+      REDIS_URL: redis://redis:6379/0
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
+      CORS_ORIGINS: '["https://${DOMAIN_FRONTEND}"]'
+    depends_on:
+      - mcp-tv
+      - mcp-plus
+      - mcp-news
+      - mcp-shared
+      - postgres-nova-kb
+      - redis
+
+  mcp-tv:
+    image: ghcr.io/${GHCR_OWNER}/nova-mcp-tv:${TAG:-latest}
+    environment:
+      POSTGRES_TV_ADMIN_URL: postgresql+psycopg2://${TV_DB_USER}:${TV_DB_PASSWORD}@postgres-tv:5432/mcn_tv
+      POSTGRES_TV_URL: postgresql+asyncpg://mcn_tv_readonly:${TV_DB_READONLY_PASSWORD}@postgres-tv:5432/mcn_tv
+      TV_DB_READONLY_PASSWORD: ${TV_DB_READONLY_PASSWORD}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: mcn_tv
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
+    depends_on:
+      - postgres-tv
+      - qdrant
+
+  postgres-tv:
+    image: postgres:16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: mcn_tv
+      POSTGRES_USER: ${TV_DB_USER}
+      POSTGRES_PASSWORD: ${TV_DB_PASSWORD}
+    volumes:
+      - postgres_tv_data:/var/lib/postgresql/data
+
+  mcp-plus:
+    image: ghcr.io/${GHCR_OWNER}/nova-mcp-plus:${TAG:-latest}
+    environment:
+      POSTGRES_PLUS_ADMIN_URL: postgresql+psycopg2://${PLUS_DB_USER}:${PLUS_DB_PASSWORD}@postgres-plus:5432/mcn_plus
+      POSTGRES_PLUS_URL: postgresql+asyncpg://mcn_plus_readonly:${PLUS_DB_READONLY_PASSWORD}@postgres-plus:5432/mcn_plus
+      PLUS_DB_READONLY_PASSWORD: ${PLUS_DB_READONLY_PASSWORD}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: mcn_plus
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
+    depends_on:
+      - postgres-plus
+      - qdrant
+
+  postgres-plus:
+    image: postgres:16
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: mcn_plus
+      POSTGRES_USER: ${PLUS_DB_USER}
+      POSTGRES_PASSWORD: ${PLUS_DB_PASSWORD}
+    volumes:
+      - postgres_plus_data:/var/lib/postgresql/data
+
+  mcp-news:
+    image: ghcr.io/${GHCR_OWNER}/nova-mcp-news:${TAG:-latest}
+    environment:
+      POSTGRES_NEWS_ADMIN_URL: postgresql+psycopg2://${NEWS_DB_USER}:${NEWS_DB_PASSWORD}@postgres-news:5432/mcn_news
+      POSTGRES_NEWS_URL: postgresql+asyncpg://mcn_news_readonly:${NEWS_DB_READONLY_PASSWORD}@postgres-news:5432/mcn_news
+      NEWS_DB_READONLY_PASSWORD: ${NEWS_DB_READONLY_PASSWORD}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: mcn_news
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
+    depends_on:
+      - postgres-news
+      - qdrant
+
+  postgres-news:
+    image: postgres:16
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: mcn_news
+      POSTGRES_USER: ${NEWS_DB_USER}
+      POSTGRES_PASSWORD: ${NEWS_DB_PASSWORD}
+    volumes:
+      - postgres_news_data:/var/lib/postgresql/data
+
+  mcp-shared:
+    image: ghcr.io/${GHCR_OWNER}/nova-mcp-shared:${TAG:-latest}
+    environment:
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+
+  postgres-nova-kb:
+    image: postgres:16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: nova_kb
+      POSTGRES_USER: ${NOVA_KB_DB_USER}
+      POSTGRES_PASSWORD: ${NOVA_KB_DB_PASSWORD}
+    volumes:
+      - postgres_nova_kb_data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN_FRONTEND: ${DOMAIN_FRONTEND}
+      DOMAIN_API: ${DOMAIN_API}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend-api
+
+volumes:
+  postgres_tv_data:
+  postgres_plus_data:
+  postgres_news_data:
+  postgres_nova_kb_data:
+  qdrant_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

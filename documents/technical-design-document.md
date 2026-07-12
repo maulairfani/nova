@@ -562,7 +562,13 @@ Per the Technical constraint in Section 2, every container is deployed via
 Docker; for this build, a single `docker-compose.yaml` runs everything on
 one Docker host (demo-scale — a real MCN Group deployment would spread
 domain-owned services across proper per-business-unit infrastructure, but
-that's outside this build's scope, see Section 11).
+that's outside this build's scope, see Section 11). The production
+deployment target is one such Docker host (a VM) reachable via a real
+domain, fronted by a **Caddy** reverse proxy that terminates TLS
+(automatic certificate issuance/renewal) and routes to `frontend` and
+`backend-api` — previously left unspecified in this section, now decided
+in ADR-0019 alongside the CI/CD pipeline (GitHub Actions → GHCR → SSH
+deploy) that builds and ships to it.
 
 ```mermaid
 flowchart TB
@@ -598,7 +604,8 @@ flowchart TB
 
 | Service (docker-compose) | Container | Notes |
 |---|---|---|
-| `frontend` | Next.js | Exposed to employees via reverse proxy/load balancer (not shown — out of scope for this build) |
+| `caddy` | Caddy | Reverse proxy — only component exposed to the public internet (ports 80/443); terminates TLS, routes by domain to `frontend`/`backend-api` (ADR-0019) |
+| `frontend` | Next.js | Reachable from employees only through `caddy`, not directly |
 | `backend-api` | FastAPI + LangGraph | Connects to all MCP servers, LLM API, Redis, `postgres-nova-kb` |
 | `mcp-tv`, `mcp-plus`, `mcp-news` | FastMCP *(×3)* | Each connects only to its own `postgres-<unit>` and its own Qdrant collection/MinIO bucket; `mcp-plus` covers both the streaming and shorts products (ADR-0014) |
 | `shared-mcp` | FastMCP | Connects to the external Web Search Service |
@@ -609,11 +616,15 @@ flowchart TB
 | `redis` | Redis | Shared — cache + broker |
 | `async-worker` | Python worker | Shared — ingestion pipeline for all business units |
 
-All inter-service traffic stays on the Docker Compose network; only
-`frontend` (and `backend-api`, if the frontend calls it through a public
-hostname) needs to be reachable from outside the host. Secrets (DB
-credentials, LLM/API keys) are injected via environment variables from
-`.env` files, never committed (Section 2 working conventions).
+All inter-service traffic stays on the Docker Compose network; in
+production, only `caddy` is published to the host's public ports (80/443)
+— `frontend` and `backend-api` are reachable exclusively through it, over
+two domain names (one per service, since the frontend calls `backend-api`
+directly over SSE per ADR-0017, not through a server-side proxy). Secrets
+(DB credentials, LLM/API keys) are injected via environment variables from
+`.env` files, never committed (Section 2 working conventions); the
+production `.env` lives only on the deployment VM, never generated or
+transmitted by CI/CD (ADR-0019).
 
 ## 8. Cross-cutting Concepts
 
@@ -694,6 +705,7 @@ This section is the index.
 | [0016](adr/0016-database-migrations-alembic.md) | Database schema migrations: Alembic, per business-unit MCP server | Accepted |
 | [0017](adr/0017-streaming-transport-sse.md) | Streaming transport: Server-Sent Events | Accepted |
 | [0018](adr/0018-llm-model-change-gpt-5-4-nano.md) | LLM model changed to OpenAI `gpt-5.4-nano` (amends ADR-0009) | Accepted |
+| [0019](adr/0019-cicd-and-production-deployment.md) | CI/CD and production deployment: GitHub Actions + GHCR + Caddy on a single VM | Accepted |
 
 ## 10. Quality Requirements
 
@@ -731,7 +743,8 @@ scope, ~2,400 active users, ~120 concurrent at peak, ~12,000 queries/day):
 | Operational overhead of the Data Mesh split | 3 business-unit MCP servers + 3 databases (ADR-0005, ADR-0014) is more to run/monitor than a single consolidated service, for a small Platform/Engineering team (Section 2 constraint) | Accepted trade-off for Reliability/isolation (ADR-0005); mitigated by all 3 MCP servers following an identical template (Section 5.2), so operational patterns are repeatable rather than bespoke per unit |
 | Vector DB / object storage not load-tested at estimated scale | Qdrant and MinIO were chosen based on published benchmarks and research (ADR-0004, ADR-0011), not tested against MCN Group's own estimated usage (Section 1.2: ~12,000 queries/day, ~120 concurrent) | Follow-up work: load test before a production rollout |
 | Authorization checks not yet implemented/tested | The mechanism is decided (FastMCP callable-based auth checks, Section 8, ADR-0008) but each business unit's actual role/claim rules haven't been written or tested yet | Follow-up work: implement each unit's check function and verify against Quality Scenario 4 (Section 10.2) before the Security quality goal can be considered met |
-| Single Docker host deployment (Section 7) | The current deployment view runs everything on one Docker host — this itself is a reliability/scale simplification appropriate for this build's scope, not a production topology | Acceptable for the current rollout (Section 2); a production deployment would need orthogonal scaling/redundancy per service, out of scope here |
+| Single Docker host deployment (Section 7) | The deployment view still runs everything on one Docker host (VM) — this remains a reliability/scale simplification, not a production topology, even though it now has TLS, a real domain, and automated CI/CD (ADR-0019) | Acceptable for the current rollout (Section 2); a production deployment would need orthogonal scaling/redundancy per service, out of scope here |
+| CI's integration test consumes real OpenRouter/embedding calls (ADR-0019) | The one integration test in `ci.yml` runs the real agent loop (LLM + embeddings) against a live stack, so every push/PR to `main` costs a small amount of real API usage | Accepted trade-off — scoped to a single test against one business unit to keep the cost minimal; revisit if CI volume grows enough to matter |
 
 ## 12. Glossary
 

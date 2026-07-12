@@ -32,7 +32,7 @@ Section 11 and the TDD's runtime views, Section 6): cross-business-unit
 question synthesis (TDD §6.3); the async document-ingestion pipeline
 (MinIO + Celery) — each unit currently seeds its knowledge base via a
 one-off script instead (see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md)
-for why); GitHub Actions CI/CD.
+for why).
 
 ## Tech stack
 
@@ -50,6 +50,7 @@ for why); GitHub Actions CI/CD.
 | LLM + embeddings | OpenAI `gpt-5.4-nano` + `text-embedding-3-small`, both via OpenRouter | [ADR-0009](documents/adr/0009-llm-provider.md), [ADR-0015](documents/adr/0015-llm-embedding-gateway-openrouter.md), [ADR-0018](documents/adr/0018-llm-model-change-gpt-5-4-nano.md) |
 | Streaming transport | Server-Sent Events | [ADR-0017](documents/adr/0017-streaming-transport-sse.md) |
 | Containerization | Docker + Docker Compose | [Technical constraint, TDD §2](documents/technical-design-document.md) |
+| CI/CD | GitHub Actions → GHCR; SSH deploy to a VM behind Caddy (auto TLS) | [ADR-0019](documents/adr/0019-cicd-and-production-deployment.md) |
 
 Business unit boundaries: Nova has **3** business units (MCN TV, MCN+, MCN
 News) — MCN+ covers both streaming and micro-drama products under one
@@ -67,6 +68,8 @@ mcp_servers/
   news/             MCN News's MCP server
   shared/           Web search MCP server (Tavily) — not owned by any unit
 infrastructure/    Cross-cutting deployment config (not per-service migrations — those live in mcp_servers/<unit>/alembic/)
+  docker-compose.prod.yml   Production compose — pulls GHCR images, adds Caddy (ADR-0019)
+  Caddyfile                 Reverse proxy config — auto TLS for the two production domains
 documents/         Technical Design Document, ADRs, company profile
 docker-compose.yaml
 ```
@@ -146,6 +149,63 @@ from the dropdown in the header, and ask something like:
 - **MCN News**: *"How often must a reporter post updates on a developing
   breaking news story?"*
 
+## Testing
+
+`.github/workflows/ci.yml` runs on every push/PR to `main`:
+
+- Unit tests — `backend/tests/` and each `mcp_servers/<unit>/tests/`
+  (`pytest`, no live infra needed; run locally with
+  `docker compose run --rm <service> pytest tests/` after installing
+  `requirements-test.txt`).
+- One integration test — brings up the full stack, migrates/seeds MCN TV,
+  and hits the real Chat Endpoint end-to-end
+  (`backend/tests/test_chat_integration.py`).
+- A build check for all 6 Dockerfiles (no push) and the frontend's
+  `npm run build` (catches TypeScript regressions — this exact check
+  caught a real Next.js/TypeScript incompatibility earlier in this
+  project's history, see [`frontend/CLAUDE.md`](frontend/CLAUDE.md)).
+
+## CI/CD & Production Deployment
+
+`.github/workflows/release.yml` triggers on a pushed tag (`v0.1.0`, etc.):
+builds and pushes all 6 images to GHCR, then copies
+[`infrastructure/docker-compose.prod.yml`](infrastructure/docker-compose.prod.yml)
+and [`infrastructure/Caddyfile`](infrastructure/Caddyfile) to the VM (flattened
+into `VM_DEPLOY_PATH`) and deploys over SSH behind **Caddy** (automatic
+TLS) — see [ADR-0019](documents/adr/0019-cicd-and-production-deployment.md)
+for the full rationale.
+
+To enable this, add these **GitHub repository secrets**
+(Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `VM_HOST` | The VM's IP address or hostname |
+| `VM_USER` | SSH user with Docker access on the VM |
+| `VM_SSH_KEY` | Private key for that user (public half added to the VM's `~/.ssh/authorized_keys`) |
+| `VM_DEPLOY_PATH` | Directory on the VM where `docker-compose.prod.yml`/`Caddyfile` live (e.g. `/home/<user>/nova`) |
+| `OPENROUTER_API_KEY` | Used by `ci.yml`'s integration test (a small real cost per CI run) |
+| `TAVILY_API_KEY` | Same |
+
+Before the first deploy, on the VM itself:
+
+1. Create `VM_DEPLOY_PATH` and, inside it, a `.env` file (copy
+   `.env.example`, fill in **real** production values — `GHCR_OWNER`
+   = your GitHub username/org, `DOMAIN_FRONTEND`/`DOMAIN_API`, DB
+   passwords, `OPENROUTER_API_KEY`, `TAVILY_API_KEY`). This file is never
+   generated or copied by CI/CD — it's a one-time manual step per VM.
+2. Point DNS **A records** for `DOMAIN_FRONTEND` and `DOMAIN_API` at the
+   VM's public IP (Caddy won't be able to issue TLS certificates until
+   these resolve).
+3. Ensure ports 80/443 are reachable on the VM (cloud firewall/security
+   group, in addition to any OS-level firewall).
+
+Then push a tag: `git tag v0.1.0 && git push origin v0.1.0`. After the
+first successful deploy, run the one-off setup commands (Section 3 above)
+against the VM's stack — Alembic migrations run automatically on every
+deploy, but Postgres/Qdrant seeding stays a manual first-time step, same
+as local dev.
+
 ## How this was built with Claude Code
 
 This project was built using Claude Code end-to-end — from the Technical
@@ -178,3 +238,13 @@ Design Document (Q1) through this implementation (Q2). Notably:
 - **Project-scoped Claude Code skills** (`.claude/skills/`) were installed
   for the frameworks actually in use (FastAPI, LangChain/LangGraph, frontend
   design) rather than left at defaults.
+- **The test suite encodes real bugs, not padding** — `test_mcp_client.py`
+  is a permanent regression test for two actual crashes found during
+  manual verification (a cross-business-unit tool-scoping bug and a tool
+  name collision), and `test_cache.py` regression-tests the tuple/list
+  JSON round-trip bug mentioned above. Every new workflow/config file
+  (`ci.yml`, `docker-compose.prod.yml`, `Caddyfile`) was validated locally
+  before being trusted — the pytest suites were run directly via
+  `docker compose run`, the compose file via `docker compose config`, and
+  the Caddyfile via `caddy validate` — rather than assuming YAML written
+  correctly on the first pass actually works.
