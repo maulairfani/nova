@@ -157,6 +157,23 @@ jobs:
           } > .env
       - name: Bring up the stack
         run: docker compose up -d --build
+      - name: Wait for Postgres instances to accept connections
+        # `docker compose up -d` returns as soon as containers *start*, not
+        # once Postgres is actually ready to accept connections — a race
+        # that's rarely visible on a local dev machine (natural delay
+        # between commands) but reliably bites on a fresh CI runner
+        # running everything back-to-back.
+        run: |
+          for svc in postgres-tv postgres-nova-kb; do
+            for i in $(seq 1 30); do
+              if docker compose exec -T "$svc" pg_isready > /dev/null 2>&1; then
+                echo "$svc is ready"
+                break
+              fi
+              echo "waiting for $svc... ($i/30)"
+              sleep 2
+            done
+          done
       - name: MCN TV — migrate + seed (only unit exercised by the integration test)
         run: |
           docker compose run --rm mcp-tv alembic upgrade head
