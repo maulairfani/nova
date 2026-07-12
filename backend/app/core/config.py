@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     mcp_tv_url: str
     mcp_plus_url: str
     mcp_news_url: str
+    mcp_shared_url: str
     nova_kb_database_url: str
     redis_url: str
 

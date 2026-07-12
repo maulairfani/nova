@@ -16,6 +16,7 @@ services:
       MCP_TV_URL: http://mcp-tv:9001/mcp
       MCP_PLUS_URL: http://mcp-plus:9002/mcp
       MCP_NEWS_URL: http://mcp-news:9003/mcp
+      MCP_SHARED_URL: http://mcp-shared:9004/mcp
       NOVA_KB_DATABASE_URL: postgresql://${NOVA_KB_DB_USER}:${NOVA_KB_DB_PASSWORD}@postgres-nova-kb:5432/nova_kb
       REDIS_URL: redis://redis:6379/0
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
@@ -24,6 +25,7 @@ services:
       - mcp-tv
       - mcp-plus
       - mcp-news
+      - mcp-shared
       - postgres-nova-kb
       - redis
 
@@ -50,6 +52,8 @@ services:
 
   postgres-tv:
     image: postgres:16
+    ports:
+      - "5434:5432"
     environment:
       POSTGRES_DB: mcn_tv
       POSTGRES_USER: ${TV_DB_USER}
@@ -78,6 +82,8 @@ services:
 
   postgres-plus:
     image: postgres:16
+    ports:
+      - "5435:5432"
     environment:
       POSTGRES_DB: mcn_plus
       POSTGRES_USER: ${PLUS_DB_USER}
@@ -106,6 +112,8 @@ services:
 
   postgres-news:
     image: postgres:16
+    ports:
+      - "5436:5432"
     environment:
       POSTGRES_DB: mcn_news
       POSTGRES_USER: ${NEWS_DB_USER}
@@ -113,8 +121,19 @@ services:
     volumes:
       - postgres_news_data:/var/lib/postgresql/data
 
+  mcp-shared:
+    build:
+      context: ./mcp_servers
+      dockerfile: shared/Dockerfile
+    ports:
+      - "9004:9004"
+    environment:
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+
   postgres-nova-kb:
     image: postgres:16
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: nova_kb
       POSTGRES_USER: ${NOVA_KB_DB_USER}

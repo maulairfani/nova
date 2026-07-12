@@ -10,28 +10,29 @@ Full architecture and rationale: [`documents/technical-design-document.md`](docu
 with every significant tech decision recorded as an ADR under
 [`documents/adr/`](documents/adr/).
 
-## Status: Phase 2 — all 3 business units live
+## Status: 3 business units + web search fallback live
 
-All 3 of Nova's business units (MCN TV, MCN+, MCN News) run end-to-end on
-the same proven pattern. Concretely, running today:
+All 3 of Nova's business units (MCN TV, MCN+, MCN News) plus a shared
+web-search fallback run end-to-end. Concretely, running today:
 
 - Employee picks a business unit in the chat UI and asks a question → Backend
   API's ReAct agent reasons about which tool to call → calls that unit's MCP
   server → which searches that unit's knowledge base (Qdrant) or queries its
   analytics data (PostgreSQL, read-only) → agent generates a grounded, cited
   answer → streamed back token-by-token.
+- If internal sources don't have the answer, the agent falls back to the
+  Shared MCP Server's web search tool (Tavily).
 - Conversation history persists across sessions (LangGraph's Postgres
   checkpointer) and starts fresh whenever the employee switches business
   units.
 - Repeated questions hit a Redis cache instead of re-querying tools.
 
 **Not yet built** (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
-Section 11 and the TDD's runtime views, Section 6): the shared web-search MCP
-server; cross-business-unit question synthesis (TDD §6.3); the async
-document-ingestion pipeline (MinIO + Celery) — each unit currently seeds its
-knowledge base via a one-off script instead (see
-[`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md) for why); GitHub
-Actions CI/CD.
+Section 11 and the TDD's runtime views, Section 6): cross-business-unit
+question synthesis (TDD §6.3); the async document-ingestion pipeline
+(MinIO + Celery) — each unit currently seeds its knowledge base via a
+one-off script instead (see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md)
+for why); GitHub Actions CI/CD.
 
 ## Tech stack
 
@@ -40,7 +41,8 @@ Actions CI/CD.
 | Backend API | Python, FastAPI | [ADR-0001](documents/adr/0001-backend-framework.md) |
 | Frontend | Next.js (React), TypeScript | [ADR-0002](documents/adr/0002-frontend-framework.md) |
 | Agent orchestration | LangChain/LangGraph `create_agent`, ReAct pattern | [ADR-0012](documents/adr/0012-agent-orchestration-framework.md), [ADR-0013](documents/adr/0013-agent-pattern.md) |
-| MCP server framework | FastMCP (one server per business unit) | [ADR-0008](documents/adr/0008-mcp-server-framework.md) |
+| MCP server framework | FastMCP (one server per business unit + one shared) | [ADR-0008](documents/adr/0008-mcp-server-framework.md) |
+| Web search | Tavily, via the Shared MCP Server | [ADR-0010](documents/adr/0010-web-search-provider.md) |
 | Relational DB | PostgreSQL — one instance per business unit + one shared for conversation state | [ADR-0003](documents/adr/0003-relational-database.md) |
 | DB migrations | Alembic, owned per business-unit MCP server | [ADR-0016](documents/adr/0016-database-migrations-alembic.md) |
 | Vector DB | Qdrant — one collection per business unit | [ADR-0004](documents/adr/0004-vector-database.md) |
@@ -63,6 +65,7 @@ mcp_servers/
   tv/               MCN TV's MCP server (KB search + SQL analytics tools)
   plus/             MCN+'s MCP server (streaming + shorts, one merged unit)
   news/             MCN News's MCP server
+  shared/           Web search MCP server (Tavily) — not owned by any unit
 infrastructure/    Cross-cutting deployment config (not per-service migrations — those live in mcp_servers/<unit>/alembic/)
 documents/         Technical Design Document, ADRs, company profile
 docker-compose.yaml
@@ -72,9 +75,11 @@ Each service directory has its own `CLAUDE.md` explaining its internals and
 any phase-1 simplifications: [`backend/CLAUDE.md`](backend/CLAUDE.md),
 [`frontend/CLAUDE.md`](frontend/CLAUDE.md), [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md),
 [`mcp_servers/plus/CLAUDE.md`](mcp_servers/plus/CLAUDE.md),
-[`mcp_servers/news/CLAUDE.md`](mcp_servers/news/CLAUDE.md). `plus/` and
+[`mcp_servers/news/CLAUDE.md`](mcp_servers/news/CLAUDE.md),
+[`mcp_servers/shared/CLAUDE.md`](mcp_servers/shared/CLAUDE.md). `plus/` and
 `news/` are direct replications of `tv/`'s template — read `tv/CLAUDE.md`
-first for the shared rationale.
+first for the shared rationale. `shared/` is a different, simpler shape
+(no database/Qdrant ownership) — read its own `CLAUDE.md`.
 
 ## Build and run
 
@@ -82,12 +87,13 @@ first for the shared rationale.
 
 - Docker + Docker Compose
 - An [OpenRouter](https://openrouter.ai) API key (covers both the LLM and embeddings, [ADR-0015](documents/adr/0015-llm-embedding-gateway-openrouter.md))
+- A [Tavily](https://tavily.com) API key (web search fallback, [ADR-0010](documents/adr/0010-web-search-provider.md))
 
 ### 1. Configure environment
 
 ```bash
 cp .env.example .env
-# edit .env: set OPENROUTER_API_KEY to a real key; change the *_PASSWORD placeholders
+# edit .env: set OPENROUTER_API_KEY and TAVILY_API_KEY to real keys; change the *_PASSWORD placeholders
 ```
 
 ### 2. Bring up the stack
@@ -122,7 +128,14 @@ docker compose run --rm mcp-news python -m seed.seed_qdrant
 docker compose run --rm backend-api python setup_checkpointer.py
 ```
 
-### 4. Use it
+### 4. (Optional) Connect a DB client
+
+Each Postgres instance is exposed on the host for tools like DBeaver/psql:
+`localhost:5433` (`nova_kb`), `5434` (`mcn_tv`), `5435` (`mcn_plus`), `5436`
+(`mcn_news`) — credentials are the `*_DB_USER`/`*_DB_PASSWORD` values from
+your `.env`.
+
+### 5. Use it
 
 Open [http://localhost:3000](http://localhost:3000), pick a business unit
 from the dropdown in the header, and ask something like:

@@ -48,6 +48,20 @@ app/
   business unit (e.g. `tv_kb_search`) — without that, the combined tool
   list would have name collisions and dispatch would be ambiguous about
   which server a call actually reaches.
+- **The Shared MCP Server (`mcp-shared`, web search) is always included**,
+  unlike `tv`/`plus`/`news` — it isn't owned by any single business unit,
+  so it isn't filtered by the caller's claimed unit(s).
+- **Tool calls that fail are caught and returned as content, not raised.**
+  `langchain-mcp-adapters` converts *any* MCP tool error (not just an auth
+  mismatch — an invalid API key, a rate limit, any downstream failure)
+  into a raised exception, and LangGraph's default tool-error handling
+  re-raises it, crashing the whole SSE response over one failed tool call.
+  This surfaced concretely with the web search tool (an external API is
+  far more likely to fail than our own servers). `_wrap_with_cache` now
+  catches any exception from the underlying tool call and returns it as a
+  string instead — the agent sees a failed tool result and can respond
+  gracefully (per `prompts.py`'s existing instruction not to guess an
+  answer), rather than the whole request crashing.
 - **Tool-result cache uses `pickle`, not JSON.** MCP tool results returned
   by `langchain-mcp-adapters` can be a `(content, artifact)` tuple, and a
   JSON round-trip silently turns that into a list — a different shape than

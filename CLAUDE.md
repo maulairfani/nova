@@ -165,7 +165,34 @@ unit-specific question per business unit, confirming grounded answers and a
 fresh thread on unit switch. See root `README.md`, `backend/CLAUDE.md`,
 `frontend/CLAUDE.md`, and each `mcp_servers/<unit>/CLAUDE.md` for details.
 
-**Next**: the shared web-search MCP server, the cross-business-unit
-synthesis flow (TDD §6.3), the real MinIO+Celery ingestion pipeline (each
-unit currently bypasses it with a one-off seed script), and GitHub Actions
-CI/CD (see TDD §11 and the "Not yet built" section of the README).
+**Shared MCP Server (web search) — complete and verified end-to-end**:
+`mcp_servers/shared/` exposes a single `web_search` tool via Tavily
+(ADR-0010), used as a fallback when internal sources don't have the
+answer (TDD §6.4). Unlike the business unit servers it owns no
+database/Qdrant collection — its authorization check
+(`check_shared_access`) is intentionally permissive (any caller with a
+recognized identity), since results aren't scoped to any unit's data.
+Wired into `mcp_client.py` as an always-included server (not filtered by
+claimed business unit, unlike `tv`/`plus`/`news`) since web search isn't
+unit-owned. A second real bug surfaced here, more general than phase 2's:
+`langchain-mcp-adapters` converts *any* MCP tool error (not just auth
+denials — an invalid API key, a rate limit, any downstream failure) into
+a raised exception, and LangGraph's default tool-error handling re-raises
+it, crashing the whole SSE response over one failed tool call. This
+mattered specifically for web search because an external API is far more
+likely to fail than our own servers. Fixed by having `_wrap_with_cache`
+catch any exception from a tool call and return it as tool content
+instead — the agent then reports the failure gracefully instead of the
+whole request crashing. Verified via raw MCP calls (auth denial, a
+deliberate invalid-key failure, then a real Tavily search after the user
+added their key), a standalone agent-loop check exercising the failure
+path, and a full browser pass asking a live weather question — grounded,
+cited, streamed answer — alongside a re-run of all 3 business units
+confirming no regression. Also exposed each business-unit Postgres on the
+host (`5433`–`5436`) for direct DB-client access (e.g. DBeaver).
+
+**Next**: the cross-business-unit synthesis flow (TDD §6.3, now
+practical to build since 2+ live business units and the shared server both
+exist), the real MinIO+Celery ingestion pipeline (each unit currently
+bypasses it with a one-off seed script), and GitHub Actions CI/CD (see TDD
+§11 and the "Not yet built" section of the README).

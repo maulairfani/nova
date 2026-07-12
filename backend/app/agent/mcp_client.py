@@ -19,6 +19,12 @@ from app.core.config import settings
 # Maps MCP server name -> business unit, for cache keying (TDD §8).
 _SERVER_TO_BUSINESS_UNIT = {"mcp-tv": "tv", "mcp-plus": "plus", "mcp-news": "news"}
 
+# The Shared MCP Server (web search, TDD §6.4) isn't owned by any single
+# business unit, so it's kept separate from the map above: it's included
+# for any caller with a recognized identity, not filtered by claimed unit.
+_SHARED_SERVER_NAME = "mcp-shared"
+_SHARED_LABEL = "shared"
+
 
 def _extract_cache_query(kwargs: dict) -> str:
     return kwargs.get("query") or kwargs.get("question") or json.dumps(kwargs, sort_keys=True)
@@ -30,7 +36,18 @@ def _wrap_with_cache(tool: BaseTool, business_unit: str) -> BaseTool:
     identically-named tools ("kb_search", "sql_analytics") — without the
     prefix, the agent's combined tool list would have name collisions across
     servers, and tool dispatch would be ambiguous about which unit a call
-    actually reaches."""
+    actually reaches.
+
+    Also catches any exception the underlying MCP call raises (auth denial,
+    a downstream API failure, a network error) and returns it as tool
+    content instead of letting it propagate. Found this the hard way: any
+    MCP tool result with isError=true (not just auth mismatches) gets
+    converted by langchain-mcp-adapters into a raised exception, and
+    LangGraph's default tool-error handling re-raises it rather than
+    turning it into a ToolMessage — crashing the entire agent invocation
+    (and the SSE response) over a single failed tool call. This matters
+    most for the Shared MCP Server's web_search, since an external API
+    (Tavily) is far more likely to fail/rate-limit than our own servers."""
     original_coroutine = tool.coroutine
 
     async def cached_coroutine(**kwargs):
@@ -38,7 +55,10 @@ def _wrap_with_cache(tool: BaseTool, business_unit: str) -> BaseTool:
         cached = await get_cached(business_unit, tool.name, query)
         if cached is not None:
             return cached
-        result = await original_coroutine(**kwargs)
+        try:
+            result = await original_coroutine(**kwargs)
+        except Exception as exc:
+            return f"Tool call failed: {exc}"
         await set_cached(business_unit, tool.name, query, result)
         return result
 
@@ -54,6 +74,7 @@ _SERVER_URLS = {
     "mcp-tv": lambda: settings.mcp_tv_url,
     "mcp-plus": lambda: settings.mcp_plus_url,
     "mcp-news": lambda: settings.mcp_news_url,
+    "mcp-shared": lambda: settings.mcp_shared_url,
 }
 
 
@@ -80,6 +101,10 @@ async def get_tools_for_identity(auth_headers: dict[str, str]) -> list[BaseTool]
     }
     if not relevant_servers:
         return []
+
+    # The Shared MCP Server is available to any caller with a claimed
+    # identity (not scoped to a single unit's data) — see mcp_servers/shared/auth.py.
+    relevant_servers[_SHARED_SERVER_NAME] = _SHARED_LABEL
 
     client = MultiServerMCPClient(
         {
