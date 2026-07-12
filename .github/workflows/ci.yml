@@ -6,28 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  # Dummy values shared across unit-test jobs — none of these are actually
-  # reached over the network by a unit test; they only need to satisfy
-  # pydantic-settings' required-field validation at import time.
-  POSTGRES_TV_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
-  POSTGRES_TV_URL: postgresql+asyncpg://x:x@localhost/x
-  TV_DB_READONLY_PASSWORD: x
-  POSTGRES_PLUS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
-  POSTGRES_PLUS_URL: postgresql+asyncpg://x:x@localhost/x
-  PLUS_DB_READONLY_PASSWORD: x
-  POSTGRES_NEWS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
-  POSTGRES_NEWS_URL: postgresql+asyncpg://x:x@localhost/x
-  NEWS_DB_READONLY_PASSWORD: x
-  QDRANT_URL: http://localhost:6333
-  MCP_TV_URL: http://localhost:9001/mcp
-  MCP_PLUS_URL: http://localhost:9002/mcp
-  MCP_NEWS_URL: http://localhost:9003/mcp
-  MCP_SHARED_URL: http://localhost:9004/mcp
-  NOVA_KB_DATABASE_URL: postgresql://x:x@localhost/x
-  OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
-  TAVILY_API_KEY: tvly-dummy-for-unit-tests
-
 jobs:
   test-backend:
     runs-on: ubuntu-latest
@@ -36,7 +14,24 @@ jobs:
         image: redis:7-alpine
         ports: ["6379:6379"]
     env:
+      # Dummy values — none of these are actually reached over the network
+      # by a unit test; they only need to satisfy pydantic-settings'
+      # required-field validation at import time. Deliberately scoped to
+      # this job only (not a workflow-level `env:` block): Docker Compose
+      # gives an already-set shell/process environment variable priority
+      # over a `.env` file's value, so a workflow-level dummy here would
+      # silently shadow integration-test's real secrets when it later
+      # writes them to `.env` and runs `docker compose` — a real bug found
+      # while debugging exactly that (OPENROUTER_API_KEY was truncated to
+      # this dummy's 26-char length inside the container, despite the real
+      # 73-char secret being correctly written to .env).
+      MCP_TV_URL: http://localhost:9001/mcp
+      MCP_PLUS_URL: http://localhost:9002/mcp
+      MCP_NEWS_URL: http://localhost:9003/mcp
+      MCP_SHARED_URL: http://localhost:9004/mcp
+      NOVA_KB_DATABASE_URL: postgresql://x:x@localhost/x
       REDIS_URL: redis://localhost:6379/0
+      OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,6 +49,22 @@ jobs:
     strategy:
       matrix:
         unit: [tv, plus, news, shared]
+    env:
+      # Same job-scoping rationale as test-backend above — a superset of
+      # dummy values covering every unit's required settings fields
+      # (extra="ignore" makes unrelated ones harmless for any given unit).
+      POSTGRES_TV_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+      POSTGRES_TV_URL: postgresql+asyncpg://x:x@localhost/x
+      TV_DB_READONLY_PASSWORD: x
+      POSTGRES_PLUS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+      POSTGRES_PLUS_URL: postgresql+asyncpg://x:x@localhost/x
+      PLUS_DB_READONLY_PASSWORD: x
+      POSTGRES_NEWS_ADMIN_URL: postgresql+psycopg2://x:x@localhost/x
+      POSTGRES_NEWS_URL: postgresql+asyncpg://x:x@localhost/x
+      NEWS_DB_READONLY_PASSWORD: x
+      QDRANT_URL: http://localhost:6333
+      OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
+      TAVILY_API_KEY: tvly-dummy-for-unit-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -123,13 +134,6 @@ jobs:
     needs: [test-backend, test-mcp-servers, build]
     steps:
       - uses: actions/checkout@v4
-      - name: Debug secret presence (length only, never the value)
-        run: |
-          echo "OPENROUTER_API_KEY length: ${#OPENROUTER_API_KEY}"
-          echo "TAVILY_API_KEY length: ${#TAVILY_API_KEY}"
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       - name: Write .env for the compose stack
         # Using `{ echo ...; } > .env` instead of a heredoc — a heredoc's
         # closing delimiter must have zero leading whitespace to match, but
@@ -174,11 +178,6 @@ jobs:
               sleep 2
             done
           done
-      - name: Debug — trace OPENROUTER_API_KEY from .env to the container
-        run: |
-          echo ".env line length: $(grep -c '^OPENROUTER_API_KEY=' .env)"
-          echo ".env value length: $(grep '^OPENROUTER_API_KEY=' .env | cut -d= -f2- | tr -d '\n' | wc -c)"
-          docker compose run --rm mcp-tv sh -c 'echo "container-side length: ${#OPENROUTER_API_KEY}"'
       - name: MCN TV — migrate + seed (only unit exercised by the integration test)
         run: |
           docker compose run --rm mcp-tv alembic upgrade head
