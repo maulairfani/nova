@@ -1,6 +1,9 @@
 # ADR-0019: CI/CD and Production Deployment — GitHub Actions, GHCR, Caddy on a Single VM
 
-**Status:** Accepted
+**Status:** Accepted — the TLS/reverse-proxy portion of this Decision is
+amended by [ADR-0020](0020-defer-public-tls-to-existing-reverse-proxy.md):
+the deployment VM already runs Nginx Proxy Manager for other services,
+so Caddy no longer terminates public TLS directly.
 
 ## Decision
 

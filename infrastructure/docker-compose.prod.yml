@@ -133,8 +133,10 @@ services:
   caddy:
     image: caddy:2-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      # NPM (already running on this VM for other services) owns 80/443
+      # and TLS — Caddy is reachable on this alternate port only, as an
+      # internal HTTP router NPM forwards to. See ADR-0019 and Caddyfile.
+      - "8080:80"
     environment:
       DOMAIN_FRONTEND: ${DOMAIN_FRONTEND}
       DOMAIN_API: ${DOMAIN_API}

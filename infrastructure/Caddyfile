@@ -1,7 +1,16 @@
-{$DOMAIN_FRONTEND} {
+{
+	# NPM (already running on this VM for other services) owns port 80/443
+	# and TLS for every domain — Caddy here is purely an internal HTTP
+	# router forwarding to the right container by hostname, not a public
+	# TLS terminator. `auto_https off` stops Caddy from attempting its own
+	# ACME issuance (which would fail anyway, since it can't bind 80/443).
+	auto_https off
+}
+
+http://{$DOMAIN_FRONTEND} {
 	reverse_proxy frontend:3000
 }
 
-{$DOMAIN_API} {
+http://{$DOMAIN_API} {
 	reverse_proxy backend-api:8000
 }

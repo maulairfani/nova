@@ -171,8 +171,12 @@ from the dropdown in the header, and ask something like:
 builds and pushes all 6 images to GHCR, then copies
 [`infrastructure/docker-compose.prod.yml`](infrastructure/docker-compose.prod.yml)
 and [`infrastructure/Caddyfile`](infrastructure/Caddyfile) to the VM (flattened
-into `VM_DEPLOY_PATH`) and deploys over SSH behind **Caddy** (automatic
-TLS) — see [ADR-0019](documents/adr/0019-cicd-and-production-deployment.md)
+into `VM_DEPLOY_PATH`) and deploys over SSH. **Caddy** routes internally
+by domain to `frontend`/`backend-api` on host port `8080` — public
+TLS/80/443 is owned by the VM's existing Nginx Proxy Manager (or
+whatever reverse proxy already runs there), not by this stack. See
+[ADR-0019](documents/adr/0019-cicd-and-production-deployment.md) and
+[ADR-0020](documents/adr/0020-defer-public-tls-to-existing-reverse-proxy.md)
 for the full rationale.
 
 To enable this, add these **GitHub repository secrets**
@@ -195,10 +199,11 @@ Before the first deploy, on the VM itself:
    passwords, `OPENROUTER_API_KEY`, `TAVILY_API_KEY`). This file is never
    generated or copied by CI/CD — it's a one-time manual step per VM.
 2. Point DNS **A records** for `DOMAIN_FRONTEND` and `DOMAIN_API` at the
-   VM's public IP (Caddy won't be able to issue TLS certificates until
-   these resolve).
-3. Ensure ports 80/443 are reachable on the VM (cloud firewall/security
-   group, in addition to any OS-level firewall).
+   VM's public IP.
+3. In your reverse proxy's UI (e.g. Nginx Proxy Manager), add a Proxy Host
+   for each domain, both forwarding to the VM's own address on port
+   `8080` (Caddy) — enable SSL there, since that's what owns public
+   TLS for this deployment, not Caddy (ADR-0020).
 
 Then push a tag: `git tag v0.1.0 && git push origin v0.1.0`. After the
 first successful deploy, run the one-off setup commands (Section 3 above)

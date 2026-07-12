@@ -564,11 +564,15 @@ one Docker host (demo-scale — a real MCN Group deployment would spread
 domain-owned services across proper per-business-unit infrastructure, but
 that's outside this build's scope, see Section 11). The production
 deployment target is one such Docker host (a VM) reachable via a real
-domain, fronted by a **Caddy** reverse proxy that terminates TLS
-(automatic certificate issuance/renewal) and routes to `frontend` and
-`backend-api` — previously left unspecified in this section, now decided
-in ADR-0019 alongside the CI/CD pipeline (GitHub Actions → GHCR → SSH
-deploy) that builds and ships to it.
+domain — previously left unspecified in this section, now decided in
+ADR-0019 alongside the CI/CD pipeline (GitHub Actions → GHCR → SSH
+deploy) that builds and ships to it. Public TLS termination is owned by
+the VM's pre-existing Nginx Proxy Manager (serving the user's other
+self-hosted services), not by anything in this stack; a **Caddy**
+container still routes internally to `frontend`/`backend-api` by domain
+name (ADR-0020 amends ADR-0019's original assumption that Caddy would
+terminate TLS itself, once it turned out the VM wasn't dedicated to Nova
+alone).
 
 ```mermaid
 flowchart TB
@@ -604,7 +608,7 @@ flowchart TB
 
 | Service (docker-compose) | Container | Notes |
 |---|---|---|
-| `caddy` | Caddy | Reverse proxy — only component exposed to the public internet (ports 80/443); terminates TLS, routes by domain to `frontend`/`backend-api` (ADR-0019) |
+| `caddy` | Caddy | Internal HTTP router only, by domain, to `frontend`/`backend-api` — the VM's existing Nginx Proxy Manager owns public 80/443 and TLS instead (ADR-0019, amended by ADR-0020) |
 | `frontend` | Next.js | Reachable from employees only through `caddy`, not directly |
 | `backend-api` | FastAPI + LangGraph | Connects to all MCP servers, LLM API, Redis, `postgres-nova-kb` |
 | `mcp-tv`, `mcp-plus`, `mcp-news` | FastMCP *(×3)* | Each connects only to its own `postgres-<unit>` and its own Qdrant collection/MinIO bucket; `mcp-plus` covers both the streaming and shorts products (ADR-0014) |
@@ -705,7 +709,8 @@ This section is the index.
 | [0016](adr/0016-database-migrations-alembic.md) | Database schema migrations: Alembic, per business-unit MCP server | Accepted |
 | [0017](adr/0017-streaming-transport-sse.md) | Streaming transport: Server-Sent Events | Accepted |
 | [0018](adr/0018-llm-model-change-gpt-5-4-nano.md) | LLM model changed to OpenAI `gpt-5.4-nano` (amends ADR-0009) | Accepted |
-| [0019](adr/0019-cicd-and-production-deployment.md) | CI/CD and production deployment: GitHub Actions + GHCR + Caddy on a single VM | Accepted |
+| [0019](adr/0019-cicd-and-production-deployment.md) | CI/CD and production deployment: GitHub Actions + GHCR + Caddy on a single VM | Accepted; TLS/reverse-proxy portion amended by ADR-0020 |
+| [0020](adr/0020-defer-public-tls-to-existing-reverse-proxy.md) | Defer public TLS/reverse proxy to the VM's existing Nginx Proxy Manager | Accepted |
 
 ## 10. Quality Requirements
 

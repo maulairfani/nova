@@ -6,11 +6,17 @@ service:
 - `docker-compose.prod.yml` — the production compose file. Same 12
   services as the root [`docker-compose.yaml`](../docker-compose.yaml),
   but the 6 built-from-source services are replaced with pre-built GHCR
-  images, and a `caddy` reverse-proxy service is added. See
-  [ADR-0019](../documents/adr/0019-cicd-and-production-deployment.md).
-- `Caddyfile` — reverse proxy config: two site blocks (frontend domain,
-  API domain), automatic Let's Encrypt TLS, no manual cert management.
-  `.github/workflows/release.yml` copies both files here to the
+  images, and a `caddy` service is added (published on host port `8080`
+  only, not 80/443). See [ADR-0019](../documents/adr/0019-cicd-and-production-deployment.md).
+- `Caddyfile` — **internal** HTTP router only (`auto_https off`), two site
+  blocks (frontend domain, API domain) forwarding to the right container.
+  Public TLS/80/443 is owned by whatever reverse proxy already runs on
+  the deployment VM (e.g. Nginx Proxy Manager) — discovered on the first
+  real deploy that the VM wasn't dedicated to Nova alone, see
+  [ADR-0020](../documents/adr/0020-defer-public-tls-to-existing-reverse-proxy.md).
+  That external proxy needs a Proxy Host per domain pointing at the VM's
+  own `8080` — a manual, one-time step outside this repo (see root
+  README). `.github/workflows/release.yml` copies both files here to the
   deployment VM (flattened, not preserving this `infrastructure/` prefix)
   on every tagged release.
 
@@ -37,3 +43,9 @@ docker run --rm -v "$PWD/infrastructure/Caddyfile:/etc/caddy/Caddyfile:ro" \
   -e DOMAIN_FRONTEND=example.com -e DOMAIN_API=api.example.com \
   caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
 ```
+
+Look for `"automatic HTTPS is completely disabled for server"` in the
+validate output — confirms `auto_https off` is actually taking effect
+(Caddy defaults to auto-HTTPS for any domain-name site address, which
+would be wrong here since this Caddy never receives direct public
+traffic).
