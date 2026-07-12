@@ -123,25 +123,38 @@ jobs:
     needs: [test-backend, test-mcp-servers, build]
     steps:
       - uses: actions/checkout@v4
-      - name: Write .env for the compose stack
+      - name: Debug secret presence (length only, never the value)
         run: |
-          cat <<EOF > .env
-          TV_DB_USER=nova_tv
-          TV_DB_PASSWORD=ci_dummy
-          TV_DB_READONLY_PASSWORD=ci_dummy
-          PLUS_DB_USER=nova_plus
-          PLUS_DB_PASSWORD=ci_dummy
-          PLUS_DB_READONLY_PASSWORD=ci_dummy
-          NEWS_DB_USER=nova_news
-          NEWS_DB_PASSWORD=ci_dummy
-          NEWS_DB_READONLY_PASSWORD=ci_dummy
-          NOVA_KB_DB_USER=nova_kb
-          NOVA_KB_DB_PASSWORD=ci_dummy
-          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_LLM_MODEL=openai/gpt-5.4-nano
-          OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
-          TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
-          EOF
+          echo "OPENROUTER_API_KEY length: ${#OPENROUTER_API_KEY}"
+          echo "TAVILY_API_KEY length: ${#TAVILY_API_KEY}"
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      - name: Write .env for the compose stack
+        # Using `{ echo ...; } > .env` instead of a heredoc — a heredoc's
+        # closing delimiter must have zero leading whitespace to match, but
+        # YAML's `run: |` block scalar forces every line (including the
+        # delimiter) to share this step's indentation, so `EOF` never
+        # actually matched and the previous version silently produced a
+        # malformed .env (harmless in practice, but fragile — avoided here).
+        run: |
+          {
+            echo "TV_DB_USER=nova_tv"
+            echo "TV_DB_PASSWORD=ci_dummy"
+            echo "TV_DB_READONLY_PASSWORD=ci_dummy"
+            echo "PLUS_DB_USER=nova_plus"
+            echo "PLUS_DB_PASSWORD=ci_dummy"
+            echo "PLUS_DB_READONLY_PASSWORD=ci_dummy"
+            echo "NEWS_DB_USER=nova_news"
+            echo "NEWS_DB_PASSWORD=ci_dummy"
+            echo "NEWS_DB_READONLY_PASSWORD=ci_dummy"
+            echo "NOVA_KB_DB_USER=nova_kb"
+            echo "NOVA_KB_DB_PASSWORD=ci_dummy"
+            echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+            echo "OPENROUTER_LLM_MODEL=openai/gpt-5.4-nano"
+            echo "OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small"
+            echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}"
+          } > .env
       - name: Bring up the stack
         run: docker compose up -d --build
       - name: MCN TV — migrate + seed (only unit exercised by the integration test)
