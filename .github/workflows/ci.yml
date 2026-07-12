@@ -187,7 +187,8 @@ jobs:
         run: docker compose run --rm backend-api python setup_checkpointer.py
       - name: Run the integration test
         run: |
-          docker compose run --rm -v "$PWD/requirements-test.txt:/requirements-test.txt:ro" backend-api sh -c \
+          docker compose run --rm -v "$PWD/requirements-test.txt:/requirements-test.txt:ro" \
+            -e BACKEND_URL=http://backend-api:8000 backend-api sh -c \
             "pip install -q -r /requirements-test.txt && pytest tests/ -v -m integration"
       - name: Show logs on failure
         if: failure()
