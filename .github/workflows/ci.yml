@@ -174,6 +174,11 @@ jobs:
               sleep 2
             done
           done
+      - name: Debug — trace OPENROUTER_API_KEY from .env to the container
+        run: |
+          echo ".env line length: $(grep -c '^OPENROUTER_API_KEY=' .env)"
+          echo ".env value length: $(grep '^OPENROUTER_API_KEY=' .env | cut -d= -f2- | tr -d '\n' | wc -c)"
+          docker compose run --rm mcp-tv sh -c 'echo "container-side length: ${#OPENROUTER_API_KEY}"'
       - name: MCN TV — migrate + seed (only unit exercised by the integration test)
         run: |
           docker compose run --rm mcp-tv alembic upgrade head
