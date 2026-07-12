@@ -37,6 +37,17 @@ app/
   Tool *schemas* don't depend on identity, so this only costs a cheap
   connection per request, not a re-architecture. Revisit if this becomes a
   real latency concern at higher traffic (not observed in phase 1).
+- **`get_tools_for_identity` only connects to the caller's claimed business
+  unit's server(s)**, not every business unit unconditionally. Found this
+  the hard way in phase 2: with 3 servers live, an unscoped tool list let
+  the LLM attempt tools on a unit the caller wasn't authorized for, and
+  that server's auth denial came back as an unhandled exception that
+  crashed the whole SSE response rather than failing gracefully. Every
+  server also exposes identically-named tools (`kb_search`,
+  `sql_analytics`), so each tool's exposed name is prefixed with its
+  business unit (e.g. `tv_kb_search`) — without that, the combined tool
+  list would have name collisions and dispatch would be ambiguous about
+  which server a call actually reaches.
 - **Tool-result cache uses `pickle`, not JSON.** MCP tool results returned
   by `langchain-mcp-adapters` can be a `(content, artifact)` tuple, and a
   JSON round-trip silently turns that into a list — a different shape than
@@ -46,18 +57,15 @@ app/
   cache only ever stores data the app itself wrote (never user input) and
   isn't reachable outside the Docker network.
 
-## Dev/verification scripts (not part of the running app)
-
-`test_agent_standalone.py`, `test_checkpointer_persistence.py`, and
-`test_cache.py` are one-off scripts used to verify the agent loop, Postgres
-checkpointer persistence, and Redis caching independently before wiring
-them into the HTTP layer — kept as a record of what was verified and how,
-and as a quick way to re-verify after a change. Run via
-`docker compose run --rm backend-api python <script>.py`.
-
 ## Verifying anything you change here
 
-Prefer testing at the layer you changed, same pattern as above: agent
-logic → `test_agent_standalone.py`; checkpointer → `test_checkpointer_persistence.py`
-(run twice with the same `THREAD_ID` env var); cache → `test_cache.py`;
-HTTP layer → `curl -N -X POST localhost:8000/api/v1/chat -H "Content-Type: application/json" -d '{"thread_id":"...","message":"..."}'`.
+No standing test suite exists yet (phase 1/2 scope, see the CI/CD bonus
+item in the outer workspace's tracking doc). Verify at the layer you
+changed by running a short one-off script via
+`docker compose run --rm backend-api python -c "..."` (or a scratch
+`.py` file, deleted after use — don't commit ad-hoc verification
+scripts): agent logic → build the agent via `get_tools_for_identity` +
+`create_agent` and `ainvoke` a test message; checkpointer → run the same
+`thread_id` twice and confirm history persists; cache → call a tool twice
+and confirm the second call is a cache hit; HTTP layer →
+`curl -N -X POST localhost:8000/api/v1/chat -H "Content-Type: application/json" -d '{"thread_id":"...","message":"..."}'`.

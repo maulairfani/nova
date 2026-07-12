@@ -125,18 +125,47 @@ TDD and company profile have been updated accordingly.
 end-to-end**: MCN TV + the knowledge-base question flow (TDD §6.1) runs
 fully through `docker compose up` — chat UI → Backend API's ReAct agent →
 `mcp-tv` → Qdrant/Postgres → grounded, streamed, cited answer. Verified via
-real MCP protocol calls, a standalone agent-loop test, Postgres-checkpointer
-persistence across separate process runs, a Redis cache-hit test, `curl`
+real MCP protocol calls, a standalone agent-loop check, Postgres-checkpointer
+persistence across separate process runs, a Redis cache-hit check, `curl`
 against the live SSE endpoint, and a real headless-browser pass (screenshot
-+ zero console errors). See root `README.md` for the full stack and how to
-run it, and `backend/CLAUDE.md` / `frontend/CLAUDE.md` / `mcp_servers/tv/CLAUDE.md`
-for phase-1 simplifications (dummy auth, KB seeding bypasses MinIO/Celery).
-3 new tech decisions surfaced during this phase and got their own ADRs
-rather than silent edits: OpenRouter as the LLM/embedding gateway
-(ADR-0015), Alembic for schema migrations (ADR-0016), SSE for streaming
-(ADR-0017), and a mid-build LLM model change to `gpt-5.4-nano` (ADR-0018).
++ zero console errors). 3 new tech decisions surfaced during this phase and
+got their own ADRs rather than silent edits: OpenRouter as the LLM/embedding
+gateway (ADR-0015), Alembic for schema migrations (ADR-0016), SSE for
+streaming (ADR-0017), and a mid-build LLM model change to `gpt-5.4-nano`
+(ADR-0018).
 
-**Next**: phase 2 — replicate the same pattern to `mcp_servers/plus/` and
-`mcp_servers/news/`, add the shared web-search MCP server, the
-cross-business-unit flow, and the real MinIO+Celery ingestion pipeline
-(see TDD §11 and the "Not yet built" section of the README).
+**Phase 2 — replicated to all 3 business units, complete and verified
+end-to-end**: `mcp_servers/plus/` (MCN+, streaming + shorts merged per
+ADR-0014) and `mcp_servers/news/` (MCN News) were built as direct
+replications of `mcp_servers/tv/`'s template — same file shape, same
+KB Search + SQL Analytics tools, own Postgres DB/readonly role/Alembic
+migration/Qdrant collection/3 seeded SOP docs each. Backend's `mcp_client.py` now connects to the caller's claimed business
+unit's server(s); two real bugs surfaced here during verification, both
+caught by re-checking logs after the browser pass rather than assuming
+success from a clean-looking UI: (1) every server exposes
+identically-named tools (`kb_search`, `sql_analytics`), so the agent's
+combined tool list had name collisions across business units, causing
+wrong-server tool calls — fixed by prefixing each tool's exposed name with
+its business unit (e.g. `tv_kb_search`, `plus_kb_search`); (2) the tool
+list was being built from *every* business unit server regardless of which
+single unit the caller was actually authorized for, so the LLM could
+attempt a tool on a unit it had no claim to, and that server's auth denial
+surfaced as an unhandled exception that crashed the whole SSE
+response — fixed by scoping `get_tools_for_identity` to only connect to
+server(s) matching the caller's claimed business unit(s) (also the correct
+shape for the future cross-unit flow, TDD §6.3, where an identity would
+legitimately claim more than one unit). The frontend's `ChatWindow.tsx` gained a
+business-unit selector (previously a hardcoded `"tv"` constant) — switching
+units starts a fresh conversation thread. Verified via the same discipline
+as phase 1: each new MCP server checked standalone (tool calls + auth
+allow/deny) before wiring into the backend, the agent checked against each
+unit individually, then a full clean-state `docker compose down -v` →
+`up -d` → migrate/seed all 3 units → real headless-browser pass asking a
+unit-specific question per business unit, confirming grounded answers and a
+fresh thread on unit switch. See root `README.md`, `backend/CLAUDE.md`,
+`frontend/CLAUDE.md`, and each `mcp_servers/<unit>/CLAUDE.md` for details.
+
+**Next**: the shared web-search MCP server, the cross-business-unit
+synthesis flow (TDD §6.3), the real MinIO+Celery ingestion pipeline (each
+unit currently bypasses it with a one-off seed script), and GitHub Actions
+CI/CD (see TDD §11 and the "Not yet built" section of the README).

@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     mcp_tv_url: str
+    mcp_plus_url: str
+    mcp_news_url: str
     nova_kb_database_url: str
     redis_url: str
 

@@ -10,27 +10,28 @@ Full architecture and rationale: [`documents/technical-design-document.md`](docu
 with every significant tech decision recorded as an ADR under
 [`documents/adr/`](documents/adr/).
 
-## Status: Phase 1 vertical slice
+## Status: Phase 2 — all 3 business units live
 
-This build implements **one business unit (MCN TV) and one flow (knowledge-base
-question answering)** end-to-end, proving the architecture before replicating
-it to MCN+ and MCN News. Concretely, running today:
+All 3 of Nova's business units (MCN TV, MCN+, MCN News) run end-to-end on
+the same proven pattern. Concretely, running today:
 
-- Employee asks a question in the chat UI → Backend API's ReAct agent reasons
-  about which tool to call → calls MCN TV's MCP server → which searches
-  MCN TV's knowledge base (Qdrant) or queries MCN TV's analytics data
-  (PostgreSQL, read-only) → agent generates a grounded, cited answer →
-  streamed back token-by-token.
+- Employee picks a business unit in the chat UI and asks a question → Backend
+  API's ReAct agent reasons about which tool to call → calls that unit's MCP
+  server → which searches that unit's knowledge base (Qdrant) or queries its
+  analytics data (PostgreSQL, read-only) → agent generates a grounded, cited
+  answer → streamed back token-by-token.
 - Conversation history persists across sessions (LangGraph's Postgres
-  checkpointer).
+  checkpointer) and starts fresh whenever the employee switches business
+  units.
 - Repeated questions hit a Redis cache instead of re-querying tools.
 
-**Not yet built** (tracked as phase 2, see [`documents/technical-design-document.md`](documents/technical-design-document.md)
-Section 11 and the TDD's runtime views, Section 6): MCN+ and MCN News MCP
-servers/databases; the shared web-search MCP server; cross-business-unit
-question synthesis; the async document-ingestion pipeline (MinIO + Celery) —
-phase 1 seeds the knowledge base via a one-off script instead (see
-[`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md) for why).
+**Not yet built** (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
+Section 11 and the TDD's runtime views, Section 6): the shared web-search MCP
+server; cross-business-unit question synthesis (TDD §6.3); the async
+document-ingestion pipeline (MinIO + Celery) — each unit currently seeds its
+knowledge base via a one-off script instead (see
+[`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md) for why); GitHub
+Actions CI/CD.
 
 ## Tech stack
 
@@ -60,6 +61,8 @@ frontend/          Next.js chat UI
 mcp_servers/
   common/          Shared code (auth shape, embeddings client, Qdrant helper)
   tv/               MCN TV's MCP server (KB search + SQL analytics tools)
+  plus/             MCN+'s MCP server (streaming + shorts, one merged unit)
+  news/             MCN News's MCP server
 infrastructure/    Cross-cutting deployment config (not per-service migrations — those live in mcp_servers/<unit>/alembic/)
 documents/         Technical Design Document, ADRs, company profile
 docker-compose.yaml
@@ -67,7 +70,11 @@ docker-compose.yaml
 
 Each service directory has its own `CLAUDE.md` explaining its internals and
 any phase-1 simplifications: [`backend/CLAUDE.md`](backend/CLAUDE.md),
-[`frontend/CLAUDE.md`](frontend/CLAUDE.md), [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md).
+[`frontend/CLAUDE.md`](frontend/CLAUDE.md), [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md),
+[`mcp_servers/plus/CLAUDE.md`](mcp_servers/plus/CLAUDE.md),
+[`mcp_servers/news/CLAUDE.md`](mcp_servers/news/CLAUDE.md). `plus/` and
+`news/` are direct replications of `tv/`'s template — read `tv/CLAUDE.md`
+first for the shared rationale.
 
 ## Build and run
 
@@ -96,14 +103,20 @@ container-start behavior — see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLA
 for why (in short: phase 1 doesn't have the real ingestion pipeline yet).
 
 ```bash
-# Create MCN TV's analytics schema + read-only role
+# Create each business unit's analytics schema + read-only role
 docker compose run --rm mcp-tv alembic upgrade head
+docker compose run --rm mcp-plus alembic upgrade head
+docker compose run --rm mcp-news alembic upgrade head
 
-# Seed MCN TV's dummy analytics data (programs, ratings, ad revenue)
+# Seed each unit's dummy analytics data
 docker compose run --rm mcp-tv python -m seed.seed_postgres
+docker compose run --rm mcp-plus python -m seed.seed_postgres
+docker compose run --rm mcp-news python -m seed.seed_postgres
 
-# Embed MCN TV's dummy SOP documents into Qdrant
+# Embed each unit's dummy SOP documents into Qdrant
 docker compose run --rm mcp-tv python -m seed.seed_qdrant
+docker compose run --rm mcp-plus python -m seed.seed_qdrant
+docker compose run --rm mcp-news python -m seed.seed_qdrant
 
 # Create LangGraph's conversation-checkpoint tables
 docker compose run --rm backend-api python setup_checkpointer.py
@@ -111,9 +124,14 @@ docker compose run --rm backend-api python setup_checkpointer.py
 
 ### 4. Use it
 
-Open [http://localhost:3000](http://localhost:3000) and ask something like
-*"How much lead time do I need to book a prime time ad slot?"* or *"What's
-the average viewership rating across MCN TV's programs?"*
+Open [http://localhost:3000](http://localhost:3000), pick a business unit
+from the dropdown in the header, and ask something like:
+
+- **MCN TV**: *"How much lead time do I need to book a prime time ad slot?"*
+- **MCN+**: *"How many days before a licensed title's expiry should we
+  decide on renewal?"*
+- **MCN News**: *"How often must a reporter post updates on a developing
+  breaking news story?"*
 
 ## How this was built with Claude Code
 
