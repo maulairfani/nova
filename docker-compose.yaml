@@ -17,7 +17,8 @@ services:
       MCP_PLUS_URL: http://mcp-plus:9002/mcp
       MCP_NEWS_URL: http://mcp-news:9003/mcp
       MCP_SHARED_URL: http://mcp-shared:9004/mcp
-      NOVA_KB_DATABASE_URL: postgresql://${NOVA_KB_DB_USER}:${NOVA_KB_DB_PASSWORD}@postgres-nova-kb:5432/nova_kb
+      CORE_DATABASE_URL: postgresql://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
+      CORE_DATABASE_ADMIN_URL: postgresql+psycopg://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
       REDIS_URL: redis://redis:6379/0
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
@@ -26,7 +27,7 @@ services:
       - mcp-plus
       - mcp-news
       - mcp-shared
-      - postgres-nova-kb
+      - postgres-core
       - redis
 
   mcp-tv:
@@ -130,16 +131,16 @@ services:
     environment:
       TAVILY_API_KEY: ${TAVILY_API_KEY}
 
-  postgres-nova-kb:
+  postgres-core:
     image: postgres:16
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_DB: nova_kb
-      POSTGRES_USER: ${NOVA_KB_DB_USER}
-      POSTGRES_PASSWORD: ${NOVA_KB_DB_PASSWORD}
+      POSTGRES_DB: nova_core
+      POSTGRES_USER: ${CORE_DB_USER}
+      POSTGRES_PASSWORD: ${CORE_DB_PASSWORD}
     volumes:
-      - postgres_nova_kb_data:/var/lib/postgresql/data
+      - postgres_core_data:/var/lib/postgresql/data
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -157,6 +158,6 @@ volumes:
   postgres_tv_data:
   postgres_plus_data:
   postgres_news_data:
-  postgres_nova_kb_data:
+  postgres_core_data:
   qdrant_data:
   redis_data:

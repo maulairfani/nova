@@ -36,7 +36,7 @@ timeline) and its observability tooling (LangSmith, Section 8), which
 gives visibility into the agent's reasoning and tool-selection decisions —
 directly useful for debugging the Groundedness/Accuracy quality goal
 (Section 1.2). It also ships a Postgres-backed checkpointer, letting Nova
-reuse its existing PostgreSQL investment (`nova_kb`) for conversation state
+reuse its existing PostgreSQL investment (`nova_core`) for conversation state
 instead of adding a separate session store (Maintainability goal).
 
 ## Consequences

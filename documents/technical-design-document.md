@@ -261,7 +261,7 @@ common tooling, not domain-specific) is deliberately different:
   second MCP server or database.
 - Shared infrastructure: Frontend, Backend API, Redis (cache/broker), the
   async worker (ingestion pipeline, reused across all business units'
-  buckets/collections), and a separate `nova_kb` PostgreSQL instance for
+  buckets/collections), and a separate `nova_core` PostgreSQL instance for
   Nova's own operational data (conversation state via LangGraph's Postgres
   checkpointer) — this isn't a business unit's data product, it's Nova's
   own application state, so it stays centralized.
@@ -309,7 +309,7 @@ flowchart TB
         SharedMcp["<b>Shared MCP Server</b><br/><i>FastMCP</i><br/>Web search tool"]
         Redis["<b>Redis</b><br/><i>Cache / Broker</i>"]
         AsyncWorker["<b>Async Worker</b><br/><i>Python worker</i><br/>Document ingestion pipeline,<br/>shared across all business units"]
-        KBDB["<b>PostgreSQL</b><br/><i>nova_kb</i><br/>Conversation state<br/>(shared, not domain-owned)"]
+        KBDB["<b>PostgreSQL</b><br/><i>nova_core</i><br/>Conversation state<br/>(shared, not domain-owned)"]
         Qdrant["<b>Qdrant</b><br/><i>Vector store</i><br/>one collection per business unit"]
         ObjectStorage["<b>Object Storage</b><br/><i>MinIO</i><br/>one bucket per business unit"]
     end
@@ -347,7 +347,7 @@ flowchart TB
 Color coding: **amber/dashed** = domain-owned, one full instance per
 business unit (×3); **green/dotted** = single shared deployment,
 logically partitioned per business unit (Qdrant collections, MinIO
-buckets — not 3 separate instances; `nova_kb` is Nova's own operational
+buckets — not 3 separate instances; `nova_core` is Nova's own operational
 state, not business-unit data at all); **blue** = ordinary shared
 infrastructure. Full breakdown in the table below. All of these are
 deployed by us for this build, standing in for what would be genuinely
@@ -362,7 +362,7 @@ external/domain-owned systems in a real MCN Group deployment (Section 3).
 | Shared MCP Server | FastMCP *(tentative)* | Exposes the web search tool — not owned by any business unit | Shared |
 | Qdrant | Qdrant | Vector store for KB embeddings; one collection per business unit | Shared deployment, domain-partitioned |
 | Object Storage | MinIO *(tentative)* | Raw source documents; one bucket per business unit | Shared deployment, domain-partitioned |
-| PostgreSQL (`nova_kb`) | PostgreSQL | Nova's own operational data: conversation state (LangGraph checkpointer) | Shared |
+| PostgreSQL (`nova_core`) | PostgreSQL | Nova's own operational data: conversation state (LangGraph checkpointer) | Shared |
 | Redis | Redis | Response/query caching; message broker for the async worker | Shared |
 | Async Worker | Python worker (Celery/arq, TBD) | Ingestion pipeline: reads documents from each business unit's bucket, parses, chunks, embeds into that unit's Qdrant collection | Shared (reused across business units) |
 
@@ -406,7 +406,7 @@ flowchart TB
 | ReAct Agent | The `create_agent` graph — reasons about the question, decides which business unit(s)/tool(s) to call, loops until it can answer, synthesizing across units when needed |
 | LLM Client | Sends reasoning/generation requests to the AI/LLM Service |
 | MCP Client | Invokes tools exposed by any Business Unit MCP Server or the Shared MCP Server |
-| Checkpointer | Persists/restores conversation state via LangGraph's Postgres checkpointer (`nova_kb`) |
+| Checkpointer | Persists/restores conversation state via LangGraph's Postgres checkpointer (`nova_core`) |
 | Cache Client | Reads/writes cached responses in Redis |
 
 **Business Unit MCP Server components** (same shape for all 4 business
@@ -541,7 +541,7 @@ sequenceDiagram
     participant R as Redis (queue)
     participant A as Async Worker
     participant Q as Qdrant (business unit collection)
-    participant K as PostgreSQL (nova_kb)
+    participant K as PostgreSQL (nova_core)
 
     O->>R: New/changed document triggers an ingestion job
     R->>A: Job picked up
@@ -598,7 +598,7 @@ flowchart TB
         end
 
         subgraph Shared["Shared infrastructure"]
-            nova_kb["postgres-nova-kb"]
+            nova_core["postgres-core"]
             qdrant["qdrant"]
             minio["minio"]
             redis["redis"]
@@ -610,11 +610,11 @@ flowchart TB
 |---|---|---|
 | `caddy` | Caddy | Internal HTTP router only, by domain, to `frontend`/`backend-api` — the VM's existing Nginx Proxy Manager owns public 80/443 and TLS instead (ADR-0019, amended by ADR-0020) |
 | `frontend` | Next.js | Reachable from employees only through `caddy`, not directly |
-| `backend-api` | FastAPI + LangGraph | Connects to all MCP servers, LLM API, Redis, `postgres-nova-kb` |
+| `backend-api` | FastAPI + LangGraph | Connects to all MCP servers, LLM API, Redis, `postgres-core` |
 | `mcp-tv`, `mcp-plus`, `mcp-news` | FastMCP *(×3)* | Each connects only to its own `postgres-<unit>` and its own Qdrant collection/MinIO bucket; `mcp-plus` covers both the streaming and shorts products (ADR-0014) |
 | `shared-mcp` | FastMCP | Connects to the external Web Search Service |
 | `postgres-tv`, `postgres-plus`, `postgres-news` | PostgreSQL *(×3)* | One per business unit, domain-owned; `postgres-plus` holds separate tables per product |
-| `postgres-nova-kb` | PostgreSQL | Shared — conversation state |
+| `postgres-core` | PostgreSQL | Shared — conversation state |
 | `qdrant` | Qdrant | Shared — one collection per business unit |
 | `minio` | MinIO | Shared — one bucket per business unit |
 | `redis` | Redis | Shared — cache + broker |
@@ -711,6 +711,7 @@ This section is the index.
 | [0018](adr/0018-llm-model-change-gpt-5-4-nano.md) | LLM model changed to OpenAI `gpt-5.4-nano` (amends ADR-0009) | Accepted |
 | [0019](adr/0019-cicd-and-production-deployment.md) | CI/CD and production deployment: GitHub Actions + GHCR + Caddy on a single VM | Accepted; TLS/reverse-proxy portion amended by ADR-0020 |
 | [0020](adr/0020-defer-public-tls-to-existing-reverse-proxy.md) | Defer public TLS/reverse proxy to the VM's existing Nginx Proxy Manager | Accepted |
+| [0021](adr/0021-identity-access-data-model.md) | Identity & access data model (`nova_core`): users, business units (incl. virtual "group" unit), unit-scoped permission tiers | Accepted |
 
 ## 10. Quality Requirements
 
@@ -763,7 +764,7 @@ scope, ~2,400 active users, ~120 concurrent at peak, ~12,000 queries/day):
 | **Data Mesh** | An architectural approach where each business domain owns and serves its own data as a product, rather than a centralized data team owning everything ([reference/](reference/), ADR-0005) |
 | **ReAct** | An agent pattern: reason → act (call a tool) → observe (the result) → repeat until an answer is ready |
 | **LangGraph / LangChain** | The agent orchestration framework used for Nova's Backend API (ADR-0012) |
-| **Checkpointer** | LangGraph's mechanism for persisting/restoring agent state (here, conversation history) to a datastore — Nova uses a PostgreSQL checkpointer against `nova_kb` |
+| **Checkpointer** | LangGraph's mechanism for persisting/restoring agent state (here, conversation history) to a datastore — Nova uses a PostgreSQL checkpointer against `nova_core` |
 | **pgvector** | A PostgreSQL extension adding vector similarity search — evaluated but not chosen for Nova (ADR-0004) in favor of Qdrant |
 | **Qdrant** | The vector database used for Nova's knowledge base embeddings (ADR-0004) |
 | **SSOT (Single Source of Truth)** | The authoritative source for a given piece of data — in the current design, each business unit's own data is the SSOT for that unit |

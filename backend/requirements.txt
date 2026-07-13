@@ -6,5 +6,7 @@ langchain-mcp-adapters==0.3.0
 langchain-openrouter==0.2.6
 langgraph-checkpoint-postgres==3.1.0
 psycopg[binary,pool]==3.3.4
+sqlalchemy==2.0.51
+alembic==1.18.5
 redis==8.0.1
 pydantic-settings==2.14.2

@@ -134,7 +134,7 @@ docker compose run --rm backend-api python setup_checkpointer.py
 ### 4. (Optional) Connect a DB client
 
 Each Postgres instance is exposed on the host for tools like DBeaver/psql:
-`localhost:5433` (`nova_kb`), `5434` (`mcn_tv`), `5435` (`mcn_plus`), `5436`
+`localhost:5433` (`nova_core`), `5434` (`mcn_tv`), `5435` (`mcn_plus`), `5436`
 (`mcn_news`) — credentials are the `*_DB_USER`/`*_DB_PASSWORD` values from
 your `.env`.
 

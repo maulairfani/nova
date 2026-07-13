@@ -5,7 +5,7 @@
 ## Decision
 
 Use **PostgreSQL** for all relational data: each business unit's analytics
-data, and the shared `nova_kb` instance (conversation state).
+data, and the shared `nova_core` instance (conversation state).
 
 ## Context
 

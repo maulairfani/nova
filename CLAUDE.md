@@ -63,7 +63,7 @@ summary, not the source of truth:
 - **Backend**: Python (FastAPI) — [ADR-0001](documents/adr/0001-backend-framework.md)
 - **Frontend**: Next.js (React) — [ADR-0002](documents/adr/0002-frontend-framework.md)
 - **Relational DB**: PostgreSQL — one instance per business unit (domain-owned)
-  plus one shared `nova_kb` instance for conversation state — [ADR-0003](documents/adr/0003-relational-database.md)
+  plus one shared `nova_core` instance for conversation state — [ADR-0003](documents/adr/0003-relational-database.md)
 - **Vector DB**: Qdrant — one shared deployment, one collection per business
   unit — [ADR-0004](documents/adr/0004-vector-database.md)
 - **Cache / broker**: Redis — [ADR-0006](documents/adr/0006-cache.md)
@@ -208,7 +208,26 @@ verified from here and depend on the user adding GitHub secrets
 `DOMAIN_FRONTEND`/`DOMAIN_API`. TDD §7 (deployment view), §9 (ADR index),
 and §11 (risks) updated accordingly.
 
-**Next**: the cross-business-unit synthesis flow (TDD §6.3, now
-practical to build since 2+ live business units and the shared server both
-exist), and the real MinIO+Celery ingestion pipeline (each unit currently
-bypasses it with a one-off seed script).
+**`nova_kb` renamed to `nova_core`** (its actual scope: identity, auth,
+conversation state - not just KB metadata) plus a new identity/access
+schema (ADR-0021): `users`, `business_units` (now including a virtual
+`group` entry for MCN Group corporate-level claims), `business_unit_roles`
+(`employee`/`finance`/`admin` - a unit-agnostic permission tier, not a
+unit-prefixed role name), and `user_business_units` (the single
+membership+tier claim table covering both unit-specific and MCN
+Group-level access). `backend/` gained its own Alembic setup
+(`app/models.py` as the SQLAlchemy source of truth, migrations generated
+via autogenerate rather than hand-written like the per-unit MCP servers'),
+with an `include_object` filter so autogenerate never touches LangGraph's
+own checkpoint tables. This is prep work, not auth itself - phase 1's
+unverified-header identity (`backend/CLAUDE.md`) is unchanged until the
+real login/JWT work lands.
+
+**Next**: real authentication (login endpoint issuing JWTs against the new
+`users`/`user_business_units` schema, no self-service signup - accounts
+are seeded), then updating each MCP server's `auth.py` to check real
+claims instead of the phase-1 header pass-through. After that: the
+cross-business-unit synthesis flow (TDD §6.3, now practical to build since
+2+ live business units and the shared server both exist), and the real
+MinIO+Celery ingestion pipeline (each unit currently bypasses it with a
+one-off seed script).

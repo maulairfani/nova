@@ -9,7 +9,7 @@ broker, for the document ingestion pipeline (Section 6.5).
 
 ## Context
 
-Ingesting documents (parse, chunk, embed, write to Qdrant/`nova_kb`) must
+Ingesting documents (parse, chunk, embed, write to Qdrant/`nova_core`) must
 run outside the live request path (Section 1.2 Performance Efficiency
 goal), triggered per business unit whenever a document changes.
 

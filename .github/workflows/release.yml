@@ -88,8 +88,8 @@ jobs:
             # to connect before it's ready ("the database system is
             # starting up"), a race that doesn't show up once the volumes
             # already have data (subsequent deploys start faster).
-            docker compose -f docker-compose.prod.yml up -d postgres-tv postgres-plus postgres-news postgres-nova-kb qdrant redis
-            for svc in postgres-tv postgres-plus postgres-news postgres-nova-kb; do
+            docker compose -f docker-compose.prod.yml up -d postgres-tv postgres-plus postgres-news postgres-core qdrant redis
+            for svc in postgres-tv postgres-plus postgres-news postgres-core; do
               for i in $(seq 1 30); do
                 if docker compose -f docker-compose.prod.yml exec -T "$svc" pg_isready > /dev/null 2>&1; then
                   echo "$svc is ready"
