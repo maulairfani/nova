@@ -172,7 +172,7 @@ builds and pushes all 6 images to GHCR, then copies
 [`infrastructure/docker-compose.prod.yml`](infrastructure/docker-compose.prod.yml)
 and [`infrastructure/Caddyfile`](infrastructure/Caddyfile) to the VM (flattened
 into `VM_DEPLOY_PATH`) and deploys over SSH. **Caddy** routes internally
-by domain to `frontend`/`backend-api` on host port `8080` — public
+by domain to `frontend`/`backend-api` on host port `8081` — public
 TLS/80/443 is owned by the VM's existing Nginx Proxy Manager (or
 whatever reverse proxy already runs there), not by this stack. See
 [ADR-0019](documents/adr/0019-cicd-and-production-deployment.md) and
@@ -202,8 +202,10 @@ Before the first deploy, on the VM itself:
    VM's public IP.
 3. In your reverse proxy's UI (e.g. Nginx Proxy Manager), add a Proxy Host
    for each domain, both forwarding to the VM's own address on port
-   `8080` (Caddy) — enable SSL there, since that's what owns public
-   TLS for this deployment, not Caddy (ADR-0020).
+   `8081` (Caddy) — enable SSL there, since that's what owns public
+   TLS for this deployment, not Caddy (ADR-0020). Pick whatever host port
+   is actually free on your VM; `8081` was chosen here because `8080` was
+   already taken by another service.
 
 Then push a tag: `git tag v0.1.0 && git push origin v0.1.0`. After the
 first successful deploy, run the one-off setup commands (Section 3 above)

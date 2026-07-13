@@ -5,13 +5,21 @@
 ## Decision
 
 Caddy stays in the stack, but no longer terminates public TLS or binds
-host ports 80/443. It listens on an internal-only port (`8080` on the
+host ports 80/443. It listens on an internal-only port (`8081` on the
 host, forwarding to its own port 80) as a plain HTTP router
 (`auto_https off`) that still dispatches by domain name to `frontend` or
 `backend-api`. The deployment VM's existing **Nginx Proxy Manager**
 (NPM) — already running there for the user's other self-hosted
 services — owns the public-facing 80/443 ports and TLS certificates for
 `DOMAIN_FRONTEND`/`DOMAIN_API`, forwarding to Caddy's internal port.
+
+**Update (first real deploy attempt):** the host port was initially set
+to `8080`, but the first deploy left `nova-caddy-1` stuck in `Created`
+(never `Up`) — `ss -tlnp` on the VM showed another already-running
+service's `docker-proxy` bound to `127.0.0.1:8080`, a second port
+collision distinct from the 80/443 one this ADR originally addressed.
+Moved to `8081`, free on this VM; the NPM Proxy Hosts for both domains
+must forward to `8081`, not `8080`.
 
 ## Context
 

@@ -135,8 +135,10 @@ services:
     ports:
       # NPM (already running on this VM for other services) owns 80/443
       # and TLS — Caddy is reachable on this alternate port only, as an
-      # internal HTTP router NPM forwards to. See ADR-0019 and Caddyfile.
-      - "8080:80"
+      # internal HTTP router NPM forwards to. See ADR-0019, ADR-0020, and
+      # Caddyfile. Port 8081 (not 8080) because another service on the VM
+      # already binds 127.0.0.1:8080.
+      - "8081:80"
     environment:
       DOMAIN_FRONTEND: ${DOMAIN_FRONTEND}
       DOMAIN_API: ${DOMAIN_API}
