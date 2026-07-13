@@ -68,7 +68,8 @@ summary, not the source of truth:
   unit — [ADR-0004](documents/adr/0004-vector-database.md)
 - **Cache / broker**: Redis — [ADR-0006](documents/adr/0006-cache.md)
 - **Async worker**: Celery (+ Redis broker) — document ingestion pipeline,
-  shared across business units — [ADR-0007](documents/adr/0007-async-worker-queue.md)
+  triggered by a real MinIO webhook, shared across business units —
+  [ADR-0007](documents/adr/0007-async-worker-queue.md), [ADR-0022](documents/adr/0022-document-ingestion-pipeline.md)
 - **MCP server framework**: FastMCP — one MCP server per business unit
   (KB search + SQL analytics tools) plus one shared MCP server (web search)
   — [ADR-0008](documents/adr/0008-mcp-server-framework.md)
@@ -246,11 +247,29 @@ browser pass (login → chat → logout) before and after fixing a Dockerfile
 `ARG`-default-value bug the browser test surfaced (documented in
 `frontend/CLAUDE.md`).
 
+**Document ingestion pipeline — complete and verified end-to-end
+(ADR-0022)**: a real MinIO bucket-notification webhook (not polling or a
+manual trigger) now drives ingestion, matching TDD §6.5's original design
+rather than each unit's `seed_qdrant.py` bypass (left in place as a fast
+local-bootstrap path, not retired). New top-level `worker/` runs two
+processes from one image/codebase: `ingestion-webhook` (a small FastAPI
+Celery producer MinIO's webhook POSTs to) and `worker` (the Celery
+consumer that downloads the object from MinIO, parses it — Markdown via
+header-split, PDF via `pypdf` + paragraph-grouped chunking — embeds each
+chunk, upserts into that business unit's Qdrant collection, and
+records/updates a row in a new `documents` table in `nova_core`, owned by
+`backend/`'s existing Alembic setup but written to by `worker/` using the
+same trusted internal credentials). One-off setup:
+`docker compose run --rm worker python bootstrap_buckets.py` (creates the
+3 buckets, subscribes each to the webhook). Verified by uploading a real
+seeded MCN TV SOP (Markdown) and a freshly-generated test PDF directly via
+MinIO — both triggered ingestion automatically end-to-end with no manual
+step, and a live chat question against the PDF's content came back
+correctly grounded and cited before the test artifacts were cleaned up.
+
 **Still outstanding**: `business_unit_roles`' tiers (`finance`, `admin`)
 are stored and forwarded but not enforced by any MCP server's SQL
 Analytics Tool yet (ADR-0021's Consequences) - every unit member currently
 gets the same access regardless of tier. Also still pending: the
 cross-business-unit synthesis flow (TDD §6.3, now practical to build with
-real multi-unit identities like `fajar.nugroho@mcngroup.example`), and the
-real MinIO+Celery ingestion pipeline (each unit currently bypasses it with
-a one-off seed script).
+real multi-unit identities like `fajar.nugroho@mcngroup.example`).

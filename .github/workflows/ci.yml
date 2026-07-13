@@ -109,6 +109,9 @@ jobs:
           - service: mcp-shared
             context: ./mcp_servers
             dockerfile: ./mcp_servers/shared/Dockerfile
+          - service: worker
+            context: ./worker
+            dockerfile: ./worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - name: Build ${{ matrix.service }} (no push — confirms it still builds)

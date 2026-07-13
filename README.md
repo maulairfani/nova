@@ -10,29 +10,35 @@ Full architecture and rationale: [`documents/technical-design-document.md`](docu
 with every significant tech decision recorded as an ADR under
 [`documents/adr/`](documents/adr/).
 
-## Status: 3 business units + web search fallback live
+## Status: 3 business units, real auth, and async ingestion live
 
 All 3 of Nova's business units (MCN TV, MCN+, MCN News) plus a shared
-web-search fallback run end-to-end. Concretely, running today:
+web-search fallback run end-to-end, behind real login. Concretely,
+running today:
 
-- Employee picks a business unit in the chat UI and asks a question → Backend
-  API's ReAct agent reasons about which tool to call → calls that unit's MCP
-  server → which searches that unit's knowledge base (Qdrant) or queries its
-  analytics data (PostgreSQL, read-only) → agent generates a grounded, cited
-  answer → streamed back token-by-token.
+- Employee logs in (`POST /api/v1/auth/login` — no signup, accounts are
+  seeded, see [`backend/SEED_USERS.md`](backend/SEED_USERS.md)) and asks a
+  question → Backend API's ReAct agent verifies the JWT, reasons about
+  which tool to call based on that identity's actual business unit
+  claims → calls the relevant unit's MCP server(s) → which search that
+  unit's knowledge base (Qdrant) or query its analytics data (PostgreSQL,
+  read-only) → agent generates a grounded, cited answer → streamed back
+  token-by-token.
 - If internal sources don't have the answer, the agent falls back to the
   Shared MCP Server's web search tool (Tavily).
 - Conversation history persists across sessions (LangGraph's Postgres
-  checkpointer) and starts fresh whenever the employee switches business
-  units.
+  checkpointer).
 - Repeated questions hit a Redis cache instead of re-querying tools.
+- Uploading a document to a business unit's MinIO bucket automatically
+  triggers ingestion (a real webhook, not polling or a manual step) —
+  parsed (Markdown/PDF), chunked, embedded, and searchable within seconds,
+  no redeploy or manual re-seed needed.
 
 **Not yet built** (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
 Section 11 and the TDD's runtime views, Section 6): cross-business-unit
-question synthesis (TDD §6.3); the async document-ingestion pipeline
-(MinIO + Celery) — each unit currently seeds its knowledge base via a
-one-off script instead (see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md)
-for why).
+question synthesis (TDD §6.3); enforcement of `business_unit_roles`'
+`finance`/`admin` tiers by the SQL Analytics Tool (the tier is stored and
+forwarded, ADR-0021, but not yet checked by any MCP server).
 
 ## Tech stack
 
@@ -49,6 +55,9 @@ for why).
 | Cache / tool-result cache | Redis | [ADR-0006](documents/adr/0006-cache.md) |
 | LLM + embeddings | OpenAI `gpt-5.4-nano` + `text-embedding-3-small`, both via OpenRouter | [ADR-0009](documents/adr/0009-llm-provider.md), [ADR-0015](documents/adr/0015-llm-embedding-gateway-openrouter.md), [ADR-0018](documents/adr/0018-llm-model-change-gpt-5-4-nano.md) |
 | Streaming transport | Server-Sent Events | [ADR-0017](documents/adr/0017-streaming-transport-sse.md) |
+| Auth | Login-only (no signup) — JWT with embedded business-unit/role claims | [ADR-0021](documents/adr/0021-identity-access-data-model.md) |
+| Object storage | MinIO — one bucket per business unit | [ADR-0011](documents/adr/0011-object-storage.md) |
+| Async worker | Celery, triggered by a real MinIO webhook (`worker/`) | [ADR-0007](documents/adr/0007-async-worker-queue.md), [ADR-0022](documents/adr/0022-document-ingestion-pipeline.md) |
 | Containerization | Docker + Docker Compose | [Technical constraint, TDD §2](documents/technical-design-document.md) |
 | CI/CD | GitHub Actions → GHCR; SSH deploy to a VM behind Caddy (auto TLS) | [ADR-0019](documents/adr/0019-cicd-and-production-deployment.md) |
 
@@ -59,14 +68,16 @@ Data Mesh domain, not two ([ADR-0014](documents/adr/0014-mcn-plus-unified-busine
 ## Repository structure
 
 ```
-backend/           FastAPI app — the ReAct agent, chat endpoint
-frontend/          Next.js chat UI
+backend/           FastAPI app — the ReAct agent, chat/auth endpoints, nova_core's Alembic setup
+frontend/          Next.js chat UI (login page + chat window)
 mcp_servers/
   common/          Shared code (auth shape, embeddings client, Qdrant helper)
   tv/               MCN TV's MCP server (KB search + SQL analytics tools)
   plus/             MCN+'s MCP server (streaming + shorts, one merged unit)
   news/             MCN News's MCP server
   shared/           Web search MCP server (Tavily) — not owned by any unit
+worker/            Document ingestion pipeline (ADR-0022) — MinIO webhook → Celery task →
+                   parse/chunk/embed → Qdrant + nova_core's documents table
 infrastructure/    Cross-cutting deployment config (not per-service migrations — those live in mcp_servers/<unit>/alembic/)
   docker-compose.prod.yml   Production compose — pulls GHCR images, adds Caddy (ADR-0019)
   Caddyfile                 Reverse proxy config — auto TLS for the two production domains
@@ -79,7 +90,8 @@ any phase-1 simplifications: [`backend/CLAUDE.md`](backend/CLAUDE.md),
 [`frontend/CLAUDE.md`](frontend/CLAUDE.md), [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md),
 [`mcp_servers/plus/CLAUDE.md`](mcp_servers/plus/CLAUDE.md),
 [`mcp_servers/news/CLAUDE.md`](mcp_servers/news/CLAUDE.md),
-[`mcp_servers/shared/CLAUDE.md`](mcp_servers/shared/CLAUDE.md). `plus/` and
+[`mcp_servers/shared/CLAUDE.md`](mcp_servers/shared/CLAUDE.md),
+[`worker/CLAUDE.md`](worker/CLAUDE.md). `plus/` and
 `news/` are direct replications of `tv/`'s template — read `tv/CLAUDE.md`
 first for the shared rationale. `shared/` is a different, simpler shape
 (no database/Qdrant ownership) — read its own `CLAUDE.md`.
@@ -109,7 +121,8 @@ docker compose up -d --build
 
 These are deliberately manual, one-off steps rather than automatic
 container-start behavior — see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md)
-for why (in short: phase 1 doesn't have the real ingestion pipeline yet).
+for why the seed scripts exist alongside the real ingestion pipeline
+(`worker/`, ADR-0022) rather than being replaced by it.
 
 ```bash
 # Create each business unit's analytics schema + read-only role
@@ -133,7 +146,16 @@ docker compose run --rm backend-api python setup_checkpointer.py
 # Migrate nova_core's identity/access schema (ADR-0021) + seed dummy users
 docker compose run --rm backend-api alembic upgrade head
 docker compose run --rm backend-api python seed_users.py
+
+# Create the ingestion pipeline's MinIO buckets + webhook subscriptions (ADR-0022)
+docker compose run --rm worker python bootstrap_buckets.py
 ```
+
+Once bootstrapped, uploading a file to a bucket (via the MinIO console at
+[http://localhost:9011](http://localhost:9011), credentials
+`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` from your `.env`) automatically
+ingests it — no extra step. See [`worker/CLAUDE.md`](worker/CLAUDE.md) for
+how to verify the pipeline independent of the webhook.
 
 See [`backend/SEED_USERS.md`](backend/SEED_USERS.md) for the seeded
 accounts (email/password/business unit/role) — there's no signup flow.
@@ -214,6 +236,12 @@ Before the first deploy, on the VM itself:
    TLS for this deployment, not Caddy (ADR-0020). Pick whatever host port
    is actually free on your VM; `8081` was chosen here because `8080` was
    already taken by another service.
+4. After the first deploy, bootstrap the ingestion pipeline's MinIO
+   buckets (ADR-0022, one-time per VM, same as `nova_core`'s migration/seed
+   steps below):
+   ```bash
+   docker compose -f docker-compose.prod.yml run --rm worker python bootstrap_buckets.py
+   ```
 
 Then push a tag: `git tag v0.1.0 && git push origin v0.1.0`. After the
 first successful deploy, run the one-off setup commands (Section 3 above)

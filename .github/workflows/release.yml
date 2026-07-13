@@ -35,6 +35,9 @@ jobs:
           - service: mcp-shared
             context: ./mcp_servers
             dockerfile: ./mcp_servers/shared/Dockerfile
+          - service: worker
+            context: ./worker
+            dockerfile: ./worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

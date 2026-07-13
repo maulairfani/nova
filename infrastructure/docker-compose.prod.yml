@@ -134,6 +134,59 @@ services:
     volumes:
       - redis_data:/data
 
+  # --- Document ingestion pipeline (ADR-0007/0011/0022) ---
+  # Not exposed on a public host port here (unlike dev) — nothing outside
+  # the VM needs direct MinIO/webhook access; only internal container
+  # traffic (worker, ingestion-webhook) does.
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_NOTIFY_WEBHOOK_ENABLE_INGEST: "on"
+      MINIO_NOTIFY_WEBHOOK_ENDPOINT_INGEST: http://ingestion-webhook:8080/webhook
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  ingestion-webhook:
+    image: ghcr.io/${GHCR_OWNER}/nova-worker:${TAG:-latest}
+    command: uvicorn webhook:app --host 0.0.0.0 --port 8080
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_SECURE: "false"
+      QDRANT_URL: http://qdrant:6333
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      CORE_DATABASE_ADMIN_URL: postgresql+psycopg2://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
+    depends_on:
+      - redis
+      - minio
+      - postgres-core
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER}/nova-worker:${TAG:-latest}
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_SECURE: "false"
+      QDRANT_URL: http://qdrant:6333
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      CORE_DATABASE_ADMIN_URL: postgresql+psycopg2://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
+    depends_on:
+      - redis
+      - minio
+      - postgres-core
+      - qdrant
+
   caddy:
     image: caddy:2-alpine
     ports:
@@ -161,5 +214,6 @@ volumes:
   postgres_core_data:
   qdrant_data:
   redis_data:
+  minio_data:
   caddy_data:
   caddy_config:

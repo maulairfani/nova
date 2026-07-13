@@ -361,10 +361,10 @@ external/domain-owned systems in a real MCN Group deployment (Section 3).
 | PostgreSQL *(×3, one per business unit)* | PostgreSQL | That business unit's analytics data, queried live, read-oriented. MCN+'s instance holds separate tables per product (streaming, shorts) | **Domain-owned** |
 | Shared MCP Server | FastMCP *(tentative)* | Exposes the web search tool — not owned by any business unit | Shared |
 | Qdrant | Qdrant | Vector store for KB embeddings; one collection per business unit | Shared deployment, domain-partitioned |
-| Object Storage | MinIO *(tentative)* | Raw source documents; one bucket per business unit | Shared deployment, domain-partitioned |
-| PostgreSQL (`nova_core`) | PostgreSQL | Nova's own operational data: conversation state (LangGraph checkpointer) | Shared |
+| Object Storage | MinIO | Raw source documents; one bucket per business unit (ADR-0011) | Shared deployment, domain-partitioned |
+| PostgreSQL (`nova_core`) | PostgreSQL | Nova's own operational data: conversation state (LangGraph checkpointer), identity/access (ADR-0021), document ingestion metadata (ADR-0022) | Shared |
 | Redis | Redis | Response/query caching; message broker for the async worker | Shared |
-| Async Worker | Python worker (Celery/arq, TBD) | Ingestion pipeline: reads documents from each business unit's bucket, parses, chunks, embeds into that unit's Qdrant collection | Shared (reused across business units) |
+| Async Worker | Celery, two processes (`worker`/`ingestion-webhook`, ADR-0022) | Ingestion pipeline: MinIO webhook triggers a task per uploaded document, which parses (Markdown/PDF), chunks, embeds into that unit's Qdrant collection | Shared (reused across business units) |
 
 External (genuinely external — not deployed as part of this system):
 
@@ -552,7 +552,12 @@ sequenceDiagram
 ```
 
 This keeps the knowledge base aligned with source documents (Section 3.2)
-without blocking any live question-answering request.
+without blocking any live question-answering request. Concretely, "New/
+changed document triggers an ingestion job" is a real MinIO
+bucket-notification webhook (not polling or a manual trigger), received by
+a small FastAPI producer that enqueues the Celery task the Async Worker
+picks up — see ADR-0022 for why, and `worker/CLAUDE.md` for the exact
+process split.
 
 ## 7. Deployment View
 
@@ -712,6 +717,7 @@ This section is the index.
 | [0019](adr/0019-cicd-and-production-deployment.md) | CI/CD and production deployment: GitHub Actions + GHCR + Caddy on a single VM | Accepted; TLS/reverse-proxy portion amended by ADR-0020 |
 | [0020](adr/0020-defer-public-tls-to-existing-reverse-proxy.md) | Defer public TLS/reverse proxy to the VM's existing Nginx Proxy Manager | Accepted |
 | [0021](adr/0021-identity-access-data-model.md) | Identity & access data model (`nova_core`): users, business units (incl. virtual "group" unit), unit-scoped permission tiers | Accepted |
+| [0022](adr/0022-document-ingestion-pipeline.md) | Document ingestion pipeline: MinIO webhook + Celery worker (`worker/`) | Accepted |
 
 ## 10. Quality Requirements
 

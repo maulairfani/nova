@@ -7,7 +7,7 @@ setup_checkpointer.py, not by this file or Alembic.
 """
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Text, TIMESTAMP, func
+from sqlalchemy import Boolean, ForeignKey, Integer, Text, TIMESTAMP, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -70,3 +70,25 @@ class UserBusinessUnit(Base):
     # One tier per membership (not a many-to-many join) - a member's
     # standing within a given unit is a single value, not a set.
     role_code: Mapped[str] = mapped_column(Text, ForeignKey("business_unit_roles.code"), server_default="employee")
+
+
+class Document(Base):
+    """Ingestion pipeline metadata (ADR-0022) - written by worker/, not
+    backend/, but the schema/migrations live here since backend/ is
+    nova_core's owner (ADR-0021). worker/ writes to this table using the
+    same trusted internal credentials as backend's own admin connection -
+    unlike the SQL Analytics Tool's scoped read-only role, there's no
+    untrusted/LLM-generated query involved here to guard against."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    business_unit_code: Mapped[str] = mapped_column(Text, ForeignKey("business_units.code"))
+    object_key: Mapped[str] = mapped_column(Text)  # key within that unit's MinIO bucket
+    title: Mapped[str] = mapped_column(Text)
+    format: Mapped[str] = mapped_column(Text)  # "markdown" | "pdf"
+    status: Mapped[str] = mapped_column(Text, server_default="pending")  # "pending" | "ingested" | "failed"
+    chunk_count: Mapped[int | None] = mapped_column(Integer)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    ingested_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
