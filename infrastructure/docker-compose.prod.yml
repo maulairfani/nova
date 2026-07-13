@@ -1,8 +1,10 @@
 services:
   frontend:
+    # NEXT_PUBLIC_BACKEND_URL is NOT set here - it's a Next.js
+    # NEXT_PUBLIC_* var, inlined into the client bundle at `npm run build`
+    # time, not read from the container's runtime environment. It's baked
+    # into the image by release.yml's build-args (DOMAIN_API secret).
     image: ghcr.io/${GHCR_OWNER}/nova-frontend:${TAG:-latest}
-    environment:
-      NEXT_PUBLIC_BACKEND_URL: https://${DOMAIN_API}
     depends_on:
       - backend-api
 

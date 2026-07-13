@@ -190,6 +190,7 @@ To enable this, add these **GitHub repository secrets**
 | `VM_DEPLOY_PATH` | Directory on the VM where `docker-compose.prod.yml`/`Caddyfile` live (e.g. `/home/<user>/nova`) |
 | `OPENROUTER_API_KEY` | Used by `ci.yml`'s integration test (a small real cost per CI run) |
 | `TAVILY_API_KEY` | Same |
+| `DOMAIN_API` | e.g. `api.nova.irfani.me` — baked into the frontend image at build time as `NEXT_PUBLIC_BACKEND_URL` (see below), since Next.js inlines `NEXT_PUBLIC_*` vars at build, not at container runtime |
 
 Before the first deploy, on the VM itself:
 

@@ -50,6 +50,8 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            ${{ matrix.service == 'frontend' && format('NEXT_PUBLIC_BACKEND_URL=https://{0}', secrets.DOMAIN_API) || '' }}
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/nova-${{ matrix.service }}:${{ github.ref_name }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/nova-${{ matrix.service }}:latest

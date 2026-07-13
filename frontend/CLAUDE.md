@@ -52,6 +52,19 @@ configuration — path aliases (`@/...`) aren't used here; everything
 imports via relative paths instead, deliberately, to sidestep this class
 of bundler/tsconfig alias-resolution issue entirely.
 
+## NEXT_PUBLIC_BACKEND_URL is a build-time value, not a runtime one
+
+`NEXT_PUBLIC_*` env vars are inlined into the client JS bundle by
+`npm run build` — setting `NEXT_PUBLIC_BACKEND_URL` as a container
+`environment:` entry (e.g. in `docker-compose.prod.yml`) has no effect,
+since the bundle was already built without it. In production this is
+passed as a Docker **build-arg** instead (`ARG`/`ENV` pair in
+`Dockerfile`, supplied by `release.yml` via the `DOMAIN_API` GitHub
+secret) so `https://api.<domain>` gets baked in before `npm run build`
+runs. First deploy shipped without this and the browser tried (and
+CORS-failed) to reach the `http://localhost:8000` fallback in
+`lib/streamChat.ts` from a public HTTPS page.
+
 ## Running locally without Docker
 
 ```bash
