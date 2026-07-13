@@ -2,30 +2,20 @@
 via SSE (ADR-0017)."""
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
 from app.agent.graph import build_agent
+from app.api.v1.deps import get_auth_headers
 from app.schemas.chat import ChatRequest
 
 router = APIRouter()
 
 
-def _auth_headers_from_request(request: Request) -> dict[str, str]:
-    """Phase-1 simplification: forwards the dummy identity headers the
-    Frontend sends, unchanged, down to the MCP servers. See backend/CLAUDE.md."""
-    headers = {}
-    for name in ("x-nova-user", "x-nova-business-units", "x-nova-roles"):
-        if name in request.headers:
-            headers[name] = request.headers[name]
-    return headers
-
-
 @router.post("/chat")
-async def chat(payload: ChatRequest, request: Request):
+async def chat(payload: ChatRequest, request: Request, auth_headers: dict[str, str] = Depends(get_auth_headers)):
     checkpointer = request.app.state.checkpointer
-    auth_headers = _auth_headers_from_request(request)
 
     async def event_stream():
         agent = await build_agent(auth_headers, checkpointer)

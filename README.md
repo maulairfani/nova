@@ -129,7 +129,14 @@ docker compose run --rm mcp-news python -m seed.seed_qdrant
 
 # Create LangGraph's conversation-checkpoint tables
 docker compose run --rm backend-api python setup_checkpointer.py
+
+# Migrate nova_core's identity/access schema (ADR-0021) + seed dummy users
+docker compose run --rm backend-api alembic upgrade head
+docker compose run --rm backend-api python seed_users.py
 ```
+
+See [`backend/SEED_USERS.md`](backend/SEED_USERS.md) for the seeded
+accounts (email/password/business unit/role) — there's no signup flow.
 
 ### 4. (Optional) Connect a DB client
 
@@ -140,8 +147,8 @@ your `.env`.
 
 ### 5. Use it
 
-Open [http://localhost:3000](http://localhost:3000), pick a business unit
-from the dropdown in the header, and ask something like:
+Open [http://localhost:3000](http://localhost:3000), log in with one of
+the seeded accounts (`backend/SEED_USERS.md`), and ask something like:
 
 - **MCN TV**: *"How much lead time do I need to book a prime time ad slot?"*
 - **MCN+**: *"How many days before a licensed title's expiry should we

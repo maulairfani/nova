@@ -22,6 +22,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
     depends_on:
       - mcp-tv
       - mcp-plus

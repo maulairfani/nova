@@ -1,10 +1,10 @@
 """Integration test — hits a live docker-compose stack's Chat Endpoint
-end-to-end (Frontend's HTTP contract, minus the browser): backend-api's
-ReAct agent -> mcp-tv -> Qdrant/Postgres -> a real, grounded streamed
-answer. Requires the stack to already be up with MCN TV migrated and
-seeded (see .github/workflows/ci.yml's integration-test job, or run
-locally against the dev docker-compose.yaml after the one-off setup steps
-in the README).
+end-to-end (Frontend's HTTP contract, minus the browser): login (ADR-0021)
+-> backend-api's ReAct agent -> mcp-tv -> Qdrant/Postgres -> a real,
+grounded streamed answer. Requires the stack to already be up with MCN TV
+migrated/seeded and nova_core migrated/seeded with dummy users (see
+.github/workflows/ci.yml's integration-test job, or run locally against
+the dev docker-compose.yaml after the one-off setup steps in the README).
 """
 import os
 
@@ -13,10 +13,21 @@ import pytest
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
+# Seeded by seed_users.py (backend/SEED_USERS.md) — tv/employee.
+_TEST_USER_EMAIL = "andi.wijaya@mcngroup.example"
+_TEST_USER_PASSWORD = "Nova123!"
+
 
 @pytest.mark.integration
 async def test_chat_endpoint_streams_a_grounded_tv_answer():
     async with httpx.AsyncClient(timeout=60) as client:
+        login_response = await client.post(
+            f"{BACKEND_URL}/api/v1/auth/login",
+            json={"email": _TEST_USER_EMAIL, "password": _TEST_USER_PASSWORD},
+        )
+        assert login_response.status_code == 200, login_response.text
+        token = login_response.json()["access_token"]
+
         async with client.stream(
             "POST",
             f"{BACKEND_URL}/api/v1/chat",
@@ -24,7 +35,7 @@ async def test_chat_endpoint_streams_a_grounded_tv_answer():
                 "thread_id": "ci-integration-test-tv",
                 "message": "How much lead time do I need to book a prime time ad slot?",
             },
-            headers={"X-Nova-Business-Units": "tv"},
+            headers={"Authorization": f"Bearer {token}"},
         ) as response:
             assert response.status_code == 200
 

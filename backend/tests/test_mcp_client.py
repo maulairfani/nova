@@ -13,6 +13,11 @@ verification:
    business unit — without that, the combined tool list has name
    collisions and dispatch is ambiguous about which server a call reaches.
 
+Also covers two gaps found while wiring up real auth (ADR-0021): an
+identity with no real business-unit claim must still get the Shared MCP
+Server, and group_admin must connect to every business unit regardless of
+claimed_units.
+
 Uses a fake MultiServerMCPClient (no real network) so this runs as a pure
 unit test.
 """
@@ -102,12 +107,37 @@ async def test_shared_server_always_included_regardless_of_claimed_unit(monkeypa
     assert "shared_web_search" in {t.name for t in tools}
 
 
-async def test_no_identity_returns_no_tools(monkeypatch):
+async def test_no_business_unit_claim_still_gets_shared_server(monkeypatch):
+    """An identity with no real business-unit claim (e.g. an MCN Group
+    corporate employee, ADR-0021's "group"/"employee" membership) must
+    still get the Shared MCP Server (web search) — an earlier version
+    returned zero tools whenever claimed_units was empty, which meant such
+    callers never got web search either, even though mcp-shared's own
+    auth check (mcp_servers/shared/auth.py) would have allowed them in."""
     monkeypatch.setattr(mcp_client_module, "MultiServerMCPClient", FakeMultiServerMCPClient)
 
     tools = await mcp_client_module.get_tools_for_identity({})
 
-    assert tools == []
+    tool_names = {t.name for t in tools}
+    assert tool_names == {"shared_web_search"}
+
+
+async def test_group_admin_role_connects_to_every_business_unit(monkeypatch):
+    """group_admin (ADR-0021's "group"/"admin" tier, bridged to this role
+    string by api/v1/deps.py) grants cross-unit data access without a
+    per-unit business-unit claim — the caller's tool list must include
+    every business unit's server, not just mcp-shared."""
+    monkeypatch.setattr(mcp_client_module, "MultiServerMCPClient", FakeMultiServerMCPClient)
+
+    tools = await mcp_client_module.get_tools_for_identity({"x-nova-roles": "group_admin"})
+
+    tool_names = {t.name for t in tools}
+    assert tool_names == {
+        "tv_kb_search", "tv_sql_analytics",
+        "plus_kb_search", "plus_sql_analytics",
+        "news_kb_search", "news_sql_analytics",
+        "shared_web_search",
+    }
 
 
 async def test_tool_names_are_prefixed_per_business_unit_to_avoid_collisions(monkeypatch):

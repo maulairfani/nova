@@ -94,16 +94,28 @@ async def get_tools_for_identity(auth_headers: dict[str, str]) -> list[BaseTool]
     claimed_units = {
         u.strip() for u in auth_headers.get("x-nova-business-units", "").split(",") if u.strip()
     }
-    relevant_servers = {
-        server_name: business_unit
-        for server_name, business_unit in _SERVER_TO_BUSINESS_UNIT.items()
-        if business_unit in claimed_units
-    }
-    if not relevant_servers:
-        return []
+    claimed_roles = {r.strip() for r in auth_headers.get("x-nova-roles", "").split(",") if r.strip()}
+    # group_admin (ADR-0021's "group"+"admin" tier) grants cross-unit data
+    # access without needing per-unit membership - connect to every unit's
+    # server regardless of claimed_units, or a group_admin's own tool list
+    # would never include any business unit's tools even though each
+    # server's own auth check (e.g. check_tv_access) already allows them in.
+    if "group_admin" in claimed_roles:
+        relevant_servers = dict(_SERVER_TO_BUSINESS_UNIT)
+    else:
+        relevant_servers = {
+            server_name: business_unit
+            for server_name, business_unit in _SERVER_TO_BUSINESS_UNIT.items()
+            if business_unit in claimed_units
+        }
 
     # The Shared MCP Server is available to any caller with a claimed
-    # identity (not scoped to a single unit's data) — see mcp_servers/shared/auth.py.
+    # identity (not scoped to a single unit's data) — see
+    # mcp_servers/shared/auth.py. Always added, even if the caller has no
+    # real business-unit claim at all (e.g. an MCN Group corporate
+    # employee with only a "group" membership, ADR-0021's business_units
+    # row) — such callers should still get web search. mcp-shared's own
+    # auth check is the real gate for a truly anonymous caller.
     relevant_servers[_SHARED_SERVER_NAME] = _SHARED_LABEL
 
     client = MultiServerMCPClient(

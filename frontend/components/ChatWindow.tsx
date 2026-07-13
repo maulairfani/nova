@@ -1,61 +1,54 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { streamChat } from "../lib/streamChat";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getClaims, getToken, logout, TokenClaims } from "../lib/auth";
+import { streamChat, UnauthorizedError } from "../lib/streamChat";
 import { ChatInput } from "./ChatInput";
 import { Message, MessageBubble } from "./MessageBubble";
-
-/** Phase-1 simplification: no real auth yet — identity is a single selected
- * business unit forwarded as a header, not a verified login. See
- * backend/CLAUDE.md and mcp_servers/<unit>/CLAUDE.md. */
-interface BusinessUnitConfig {
-  id: string;
-  label: string;
-  badge: string;
-  placeholder: string;
-}
-
-const BUSINESS_UNITS: BusinessUnitConfig[] = [
-  {
-    id: "tv",
-    label: "MCN TV",
-    badge: "MCN TV employee",
-    placeholder: "Ask about MCN TV's SOPs (ad booking, content compliance, incident escalation) or its viewership/ad revenue data.",
-  },
-  {
-    id: "plus",
-    label: "MCN+",
-    badge: "MCN+ employee",
-    placeholder: "Ask about MCN+'s SOPs (content licensing, subscription billing, Shorts coin purchases) or its titles/engagement/revenue data.",
-  },
-  {
-    id: "news",
-    label: "MCN News",
-    badge: "MCN News employee",
-    placeholder: "Ask about MCN News's SOPs (fact-checking, breaking news, corrections) or its article engagement/ad revenue data.",
-  },
-];
 
 function newThreadId(): string {
   return crypto.randomUUID();
 }
 
+const BUSINESS_UNIT_LABELS: Record<string, string> = {
+  tv: "MCN TV",
+  plus: "MCN+",
+  news: "MCN News",
+  group: "MCN Group",
+};
+
 export function ChatWindow() {
-  const [businessUnit, setBusinessUnit] = useState<string>(BUSINESS_UNITS[0].id);
+  const router = useRouter();
+  const [claims, setClaims] = useState<TokenClaims | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
   const threadIdRef = useRef<string>(newThreadId());
-  const activeUnit = BUSINESS_UNITS.find((u) => u.id === businessUnit) ?? BUSINESS_UNITS[0];
 
-  const handleUnitChange = (unitId: string) => {
-    // Switching business units starts a fresh conversation — a unit switch
-    // is effectively a new context, not a continuation of the old thread.
-    setBusinessUnit(unitId);
-    setMessages([]);
-    threadIdRef.current = newThreadId();
+  // Which business units this identity can access is entirely a function of
+  // the JWT's claims (ADR-0021) — there is no manual "pick a unit" control
+  // anymore; the agent scopes itself to whatever the token actually grants.
+  useEffect(() => {
+    const c = getClaims();
+    if (!c) {
+      router.replace("/login");
+      return;
+    }
+    setClaims(c);
+  }, [router]);
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
   };
 
   const handleSend = async (text: string) => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setBusy(true);
 
@@ -63,7 +56,7 @@ export function ChatWindow() {
       await streamChat({
         threadId: threadIdRef.current,
         message: text,
-        businessUnit,
+        token,
         onToken: (token) => {
           setMessages((prev) => {
             const next = [...prev];
@@ -73,6 +66,11 @@ export function ChatWindow() {
         },
       });
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        logout();
+        router.replace("/login");
+        return;
+      }
       setMessages((prev) => {
         const next = [...prev];
         next[next.length - 1] = { role: "assistant", content: "Sorry, something went wrong reaching Nova." };
@@ -82,6 +80,10 @@ export function ChatWindow() {
       setBusy(false);
     }
   };
+
+  if (!claims) return null;
+
+  const unitLabels = claims.business_units.map((u) => BUSINESS_UNIT_LABELS[u.code] ?? u.code);
 
   return (
     <div
@@ -104,12 +106,12 @@ export function ChatWindow() {
       >
         <div>
           <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.2 }}>Nova</div>
-          <div style={{ fontSize: 12.5, color: "var(--nova-ink-muted)" }}>MCN Group internal assistant</div>
+          <div style={{ fontSize: 12.5, color: "var(--nova-ink-muted)" }}>
+            {claims.display_name} · {unitLabels.length > 0 ? unitLabels.join(", ") : "No business unit access"}
+          </div>
         </div>
-        <select
-          value={businessUnit}
-          onChange={(e) => handleUnitChange(e.target.value)}
-          disabled={busy}
+        <button
+          onClick={handleLogout}
           style={{
             fontSize: 11.5,
             color: "var(--nova-ink-muted)",
@@ -117,21 +119,17 @@ export function ChatWindow() {
             borderRadius: 999,
             padding: "4px 10px",
             background: "var(--nova-surface)",
-            cursor: busy ? "not-allowed" : "pointer",
+            cursor: "pointer",
           }}
         >
-          {BUSINESS_UNITS.map((unit) => (
-            <option key={unit.id} value={unit.id}>
-              {unit.badge}
-            </option>
-          ))}
-        </select>
+          Log out
+        </button>
       </header>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 0" }}>
         {messages.length === 0 && (
           <div style={{ color: "var(--nova-ink-muted)", fontSize: 14, marginTop: 40, textAlign: "center" }}>
-            {activeUnit.placeholder}
+            Ask Nova about MCN Group's SOPs, your business unit's data, or anything else.
           </div>
         )}
         {messages.map((message, i) => (

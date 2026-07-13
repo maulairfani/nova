@@ -7,23 +7,37 @@ hitting the backend (the whole thing is a client component, `ChatWindow`).
 ## Structure
 
 ```
-app/page.tsx, layout.tsx     Root page/layout
+app/
+  page.tsx, layout.tsx        Root page/layout — renders ChatWindow
+  login/page.tsx               Login form — email+password, no signup (ADR-0021)
 components/
-  ChatWindow.tsx              Owns message state + thread_id; the identity header
+  ChatWindow.tsx              Owns message state + thread_id; redirects to /login if no
+                              valid token; shows the identity's business units read-only
+                              (no manual unit picker — see below)
   MessageBubble.tsx            Renders one message (minimal inline markdown)
   ChatInput.tsx                 Textarea + send button
 lib/
-  streamChat.ts                POST + manual SSE parsing
+  auth.ts                      login()/logout(), stores the JWT in localStorage, decodes its
+                              claims client-side for display only (the backend is what
+                              actually verifies the signature, api/v1/deps.py)
+  streamChat.ts                POST + manual SSE parsing, sends the JWT as `Authorization: Bearer`
   renderInlineMarkdown.tsx      Bold/italic/code only — not a full markdown renderer
 ```
 
-## Phase-1 simplifications
+## Auth (ADR-0021)
 
-- **`BUSINESS_UNIT = "tv"` is hardcoded** in `ChatWindow.tsx`. No real
-  identity/login exists yet (see `backend/CLAUDE.md`) — this is the
-  dummy identity forwarded as `X-Nova-Business-Units`. Phase 2 (once
-  MCN+ and MCN News exist) needs a real way to pick/authenticate identity
-  here, not a hardcoded string.
+No signup — accounts are seeded on the backend (`backend/seed_users.py`,
+`backend/SEED_USERS.md`). `login()` posts to `/api/v1/auth/login` and
+stores the returned JWT in `localStorage`; `ChatWindow` redirects to
+`/login` if `getClaims()` finds no valid (unexpired) token. There is
+**no manual business-unit selector anymore** — which unit(s) an identity
+can access is entirely a function of the JWT's `business_units` claims,
+decoded client-side just to render a read-only badge
+(`"Andi Wijaya · MCN TV"`). A 401 from `/chat` (expired/invalid token,
+`streamChat.ts`'s `UnauthorizedError`) also redirects to `/login`.
+
+## Other simplifications
+
 - **No thread persistence across page reloads.** `thread_id` is generated
   once via `crypto.randomUUID()` in component state — refreshing the page
   starts a new conversation even though the backend's conversation history
@@ -64,6 +78,19 @@ secret) so `https://api.<domain>` gets baked in before `npm run build`
 runs. First deploy shipped without this and the browser tried (and
 CORS-failed) to reach the `http://localhost:8000` fallback in
 `lib/streamChat.ts` from a public HTTPS page.
+
+**Gotcha found afterward:** a Dockerfile `ARG NAME` with no default value
+resolves to an **empty string**, not `undefined` — and
+`process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"`'s `??`
+only falls back on `null`/`undefined`, not `""`. Adding the build-arg
+plumbing above without giving the `ARG` a default silently broke local
+dev builds (no `--build-arg` passed there): the bundle baked in `""`
+instead of the intended fallback, so every backend request became a
+same-origin relative URL, 404ing against the frontend's own server
+instead of reaching the backend. Fixed by giving the `ARG` an explicit
+default (`ARG NEXT_PUBLIC_BACKEND_URL=http://localhost:8000`) matching
+the app code's own fallback, and by changing `lib/auth.ts`/`lib/streamChat.ts`
+to `||` instead of `??` as a second line of defense.
 
 ## Running locally without Docker
 

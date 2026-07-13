@@ -30,8 +30,10 @@ jobs:
       MCP_NEWS_URL: http://localhost:9003/mcp
       MCP_SHARED_URL: http://localhost:9004/mcp
       CORE_DATABASE_URL: postgresql://x:x@localhost/x
+      CORE_DATABASE_ADMIN_URL: postgresql+psycopg://x:x@localhost/x
       REDIS_URL: redis://localhost:6379/0
       OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
+      JWT_SECRET_KEY: dummy-for-unit-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -158,6 +160,7 @@ jobs:
             echo "OPENROUTER_LLM_MODEL=openai/gpt-5.4-nano"
             echo "OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small"
             echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}"
+            echo "JWT_SECRET_KEY=ci-dummy-secret-not-used-in-production"
           } > .env
       - name: Bring up the stack
         run: docker compose up -d --build
@@ -185,6 +188,10 @@ jobs:
           docker compose run --rm mcp-tv python -m seed.seed_qdrant
       - name: Set up the conversation-checkpoint tables
         run: docker compose run --rm backend-api python setup_checkpointer.py
+      - name: nova_core — migrate identity schema + seed dummy users (ADR-0021)
+        run: |
+          docker compose run --rm backend-api alembic upgrade head
+          docker compose run --rm backend-api python seed_users.py
       - name: Run the integration test
         run: |
           docker compose run --rm -v "$PWD/requirements-test.txt:/requirements-test.txt:ro" \

@@ -223,11 +223,34 @@ own checkpoint tables. This is prep work, not auth itself - phase 1's
 unverified-header identity (`backend/CLAUDE.md`) is unchanged until the
 real login/JWT work lands.
 
-**Next**: real authentication (login endpoint issuing JWTs against the new
-`users`/`user_business_units` schema, no self-service signup - accounts
-are seeded), then updating each MCP server's `auth.py` to check real
-claims instead of the phase-1 header pass-through. After that: the
-cross-business-unit synthesis flow (TDD §6.3, now practical to build since
-2+ live business units and the shared server both exist), and the real
-MinIO+Celery ingestion pipeline (each unit currently bypasses it with a
-one-off seed script).
+**Real authentication — complete and verified end-to-end**: `POST
+/api/v1/auth/login` (email+password against `users`, no signup - accounts
+are seeded via `backend/seed_users.py`, see `backend/SEED_USERS.md`)
+issues a JWT with `business_units`/`role` claims embedded at login time.
+`api/v1/deps.py` verifies that JWT on every Chat Endpoint request and
+derives the `X-Nova-*` header shape each MCP server's `AuthContext`
+already expected — replacing phase 1's unverified header pass-through
+entirely (not just documenting it as a known gap anymore). Two real bugs
+surfaced in `mcp_client.py` while wiring this up (an identity with no
+business-unit claim got zero tools including web search; `group_admin`
+never actually got cross-unit access despite each unit's own auth check
+allowing it), both fixed and covered by regression tests
+(`backend/tests/test_mcp_client.py`, `test_auth.py`) — see
+`backend/CLAUDE.md` for details. The Frontend gained a login page
+(`app/login/page.tsx`, `lib/auth.ts`) and lost its manual business-unit
+dropdown entirely — which unit(s) an identity can access is now purely a
+function of the JWT's claims, with `ChatWindow` showing them read-only.
+Verified via curl (login + chat with the issued token, for `tv/employee`,
+`group/employee`, `group/admin`, and a two-unit membership) and a real
+browser pass (login → chat → logout) before and after fixing a Dockerfile
+`ARG`-default-value bug the browser test surfaced (documented in
+`frontend/CLAUDE.md`).
+
+**Still outstanding**: `business_unit_roles`' tiers (`finance`, `admin`)
+are stored and forwarded but not enforced by any MCP server's SQL
+Analytics Tool yet (ADR-0021's Consequences) - every unit member currently
+gets the same access regardless of tier. Also still pending: the
+cross-business-unit synthesis flow (TDD §6.3, now practical to build with
+real multi-unit identities like `fajar.nugroho@mcngroup.example`), and the
+real MinIO+Celery ingestion pipeline (each unit currently bypasses it with
+a one-off seed script).
