@@ -7,7 +7,7 @@ setup_checkpointer.py, not by this file or Alembic.
 """
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Text, TIMESTAMP, func
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text, TIMESTAMP, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -72,6 +72,33 @@ class UserBusinessUnit(Base):
     role_code: Mapped[str] = mapped_column(Text, ForeignKey("business_unit_roles.code"), server_default="employee")
 
 
+class Conversation(Base):
+    """Sidebar metadata (title, ownership, recency) for a chat thread.
+
+    Deliberately separate from LangGraph's own checkpoint tables, same
+    split as Document/ADR-0022: the checkpointer owns message content and
+    agent state under this same `id` as its `thread_id`, this table only
+    owns what the sidebar needs to list/search/rename/delete threads
+    without touching LangGraph's storage. Row is upserted by chat.py on
+    each message (created on the first message of a thread, updated_at
+    bumped on every subsequent one); deleting a row must also delete the
+    matching checkpointer thread (done in the conversations endpoint, not
+    here, since that's the checkpointer's API, not the ORM's)."""
+
+    __tablename__ = "conversations"
+
+    # Text, not UUID: this is the LangGraph thread_id the frontend already
+    # generates via crypto.randomUUID() - stored as an opaque string key
+    # rather than re-validated as a UUID type.
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_conversations_user_id_updated_at", "user_id", "updated_at"),)
+
+
 class Document(Base):
     """Ingestion pipeline metadata (ADR-0022) - written by worker/, not
     backend/, but the schema/migrations live here since backend/ is
@@ -92,3 +119,9 @@ class Document(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     ingested_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    # Lets both the upload endpoint (creates the row up front, with a
+    # human-provided title) and worker's insert_pending (the legacy
+    # direct-MinIO-upload path, which has no row yet) safely get-or-create
+    # by this pair instead of ever risking two rows for the same object.
+    __table_args__ = (UniqueConstraint("business_unit_code", "object_key", name="uq_documents_unit_object_key"),)

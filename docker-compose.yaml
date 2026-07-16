@@ -20,6 +20,11 @@ services:
       CORE_DATABASE_URL: postgresql://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
       CORE_DATABASE_ADMIN_URL: postgresql+psycopg://${CORE_DB_USER}:${CORE_DB_PASSWORD}@postgres-core:5432/nova_core
       REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_SECURE: "false"
+      QDRANT_URL: http://qdrant:6333
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -30,6 +35,8 @@ services:
       - mcp-shared
       - postgres-core
       - redis
+      - minio
+      - qdrant
 
   mcp-tv:
     build:

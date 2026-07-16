@@ -20,16 +20,16 @@ Same as `mcp_servers/tv/` — `server.py`, `auth.py`
   (`'streaming'|'shorts'`) rather than separate tables per product — this
   matches ADR-0014's decision that MCN+ is one data domain with two
   products, not two domains grouped under one label.
-- **KB docs cover both products.** The 3 seeded SOPs span content
+- **KB docs cover both products.** The 3 seeded SOPs (see
+  `mcp_servers/tv/CLAUDE.md` for where seeding actually lives —
+  [`documents/kb/plus/`](../../documents/kb/plus/)) span content
   licensing (both products), streaming subscription billing, and Shorts
   coin purchases — reflecting that one KB Search call can surface either
   product's documentation depending on the question.
 
 ## Phase-1 simplifications (inherited from the TV template)
 
-Same as `mcp_servers/tv/CLAUDE.md`: KB seeding bypasses the real MinIO +
-Celery ingestion pipeline (TDD §6.5) via a one-off `seed/seed_qdrant.py`
-script; authorization is a minimal role/claim check
+Authorization is a minimal role/claim check
 (`ALLOWED_ROLES = {"mcn_plus_employee", "group_admin"}` or `"plus"` in the
 caller's business units), against an unverified dummy identity (see
 `backend/CLAUDE.md`).

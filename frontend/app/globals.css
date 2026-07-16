@@ -1,14 +1,79 @@
-:root {
+:root,
+:root[data-theme="light"] {
   --nova-bg: #f7f5f2;
   --nova-surface: #ffffff;
+  --nova-surface-2: #f1ede6;
+  --nova-border: #e6e1da;
   --nova-ink: #1c1a17;
   --nova-ink-muted: #6b6560;
+  --nova-ink-faint: #8f887f;
   --nova-accent: #b8843a;
+  --nova-accent-hover: #a3742f;
+  --nova-accent-soft: #f1e4cf;
   --nova-accent-ink: #ffffff;
-  --nova-border: #e6e1da;
   --nova-user-bubble: #1c1a17;
   --nova-user-ink: #f7f5f2;
   --nova-assistant-bubble: #ffffff;
+  --nova-danger: #b3452f;
+  --nova-danger-soft: #f7e6e0;
+  --nova-ring: #b8843a;
+  --nova-hover: rgba(28, 26, 23, 0.05);
+  --nova-input-bg: #ffffff;
+  --nova-login-panel-bg: #1c1a17;
+  --nova-shadow: 0 12px 32px rgba(28, 26, 23, 0.06);
+  --nova-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --nova-bg: #17140f;
+    --nova-surface: #211d16;
+    --nova-surface-2: #2a251c;
+    --nova-border: #3a352c;
+    --nova-ink: #f2ede6;
+    --nova-ink-muted: #a89e91;
+    --nova-ink-faint: #7d7466;
+    --nova-accent: #d4a256;
+    --nova-accent-hover: #e0b06c;
+    --nova-accent-soft: #3a2f1d;
+    --nova-accent-ink: #17140f;
+    --nova-user-bubble: #f2ede6;
+    --nova-user-ink: #17140f;
+    --nova-assistant-bubble: #211d16;
+    --nova-danger: #e0785a;
+    --nova-danger-soft: #3a241d;
+    --nova-ring: #d4a256;
+    --nova-hover: rgba(255, 255, 255, 0.05);
+    --nova-input-bg: #1c1912;
+    --nova-login-panel-bg: #100e0a;
+    --nova-shadow: none;
+    --nova-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+}
+
+:root[data-theme="dark"] {
+  --nova-bg: #17140f;
+  --nova-surface: #211d16;
+  --nova-surface-2: #2a251c;
+  --nova-border: #3a352c;
+  --nova-ink: #f2ede6;
+  --nova-ink-muted: #a89e91;
+  --nova-ink-faint: #7d7466;
+  --nova-accent: #d4a256;
+  --nova-accent-hover: #e0b06c;
+  --nova-accent-soft: #3a2f1d;
+  --nova-accent-ink: #17140f;
+  --nova-user-bubble: #f2ede6;
+  --nova-user-ink: #17140f;
+  --nova-assistant-bubble: #211d16;
+  --nova-danger: #e0785a;
+  --nova-danger-soft: #3a241d;
+  --nova-ring: #d4a256;
+  --nova-hover: rgba(255, 255, 255, 0.05);
+  --nova-input-bg: #1c1912;
+  --nova-login-panel-bg: #100e0a;
+  --nova-shadow: none;
+  --nova-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -22,9 +87,59 @@ body {
   height: 100%;
   background: var(--nova-bg);
   color: var(--nova-ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: var(--font-figtree), -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 #__next {
   height: 100%;
+}
+
+::selection {
+  background: var(--nova-accent);
+  color: var(--nova-accent-ink);
+}
+
+.nova-serif {
+  font-family: var(--font-newsreader), Georgia, serif;
+}
+
+@keyframes nova-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes nova-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@keyframes nova-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

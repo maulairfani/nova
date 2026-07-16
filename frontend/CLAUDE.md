@@ -1,28 +1,113 @@
 # frontend/ — Nova's Chat UI
 
-Minimal Next.js (App Router) chat interface. Talks directly to the Backend
-API over SSE (ADR-0017) — no server-side proxy route, no server components
-hitting the backend (the whole thing is a client component, `ChatWindow`).
+Next.js (App Router) chat interface with a full app shell (sidebar +
+conversation history + settings), styled to a warm editorial design
+system matching MCN Group's brand (visual design authored in Claude
+Design, implemented here as real components — no design-tool runtime
+dependency). Talks directly to the Backend API over SSE (ADR-0017) — no
+server-side proxy route, no server components hitting the backend (the
+whole thing is a client component tree rooted at `ChatWindow`).
 
 ## Structure
 
 ```
 app/
-  page.tsx, layout.tsx        Root page/layout — renders ChatWindow
-  login/page.tsx               Login form — email+password, no signup (ADR-0021)
+  page.tsx, layout.tsx        Root page/layout — renders ChatWindow; layout.tsx loads
+                              Newsreader (display serif) + Figtree (body sans) via next/font
+  login/page.tsx               Login form — email+password, no signup (ADR-0021); split-panel
+                              layout (dark MCN Group brand panel + form card)
+  globals.css                  Design tokens (--nova-*) for light/dark, both a
+                              prefers-color-scheme fallback and an explicit
+                              data-theme="light"/"dark" override (Settings' toggle)
 components/
-  ChatWindow.tsx              Owns message state + thread_id; redirects to /login if no
-                              valid token; shows the identity's business units read-only
-                              (no manual unit picker — see below)
-  MessageBubble.tsx            Renders one message (minimal inline markdown)
+  ChatWindow.tsx              App shell orchestrator: owns claims/theme/sidebar-collapsed/
+                              conversations/active thread/messages/liveSteps/view ("empty" |
+                              "active" | "settings" | "documents") state; redirects to /login
+                              if no valid token; shows the identity's business units as plain
+                              read-only text (no manual unit picker — see below)
+  Sidebar.tsx                  New chat, Manage documents nav item, search, conversations
+                              grouped by recency (Today/Yesterday/Previous 7 days/Older),
+                              inline rename, delete, collapse; account footer (Settings/Log out)
+  SettingsView.tsx             Profile (read-only), Appearance (theme toggle), Session
+                              (log out) — no "clear all history" (descoped, see below)
+  DocumentsView.tsx             Manage Documents screen: per-unit tabs (only shown if the
+                              caller has more than one accessible unit), search, upload
+                              (admin-only, per `canManageUnit`), status pills, inline delete
+                              confirm — talks to backend/app/api/v1/endpoints/documents.py
+  MessageBubble.tsx            Renders one message (minimal inline markdown), a typing-dots
+                              indicator while the last assistant message is still
+                              empty/streaming, and a tool-call steps trace (live while
+                              streaming, collapsible once finished) via ToolSteps.tsx
+  ToolSteps.tsx                 LiveSteps (open, per-step active/done icon, shown while
+                              streaming) and StepsTrace (collapsed-by-default count that
+                              expands, shown on a finished message or one reloaded from history)
   ChatInput.tsx                 Textarea + send button
+  Sidebar/Header account menu   AccountMenu.tsx, NovaMark.tsx — small shared pieces
 lib/
   auth.ts                      login()/logout(), stores the JWT in localStorage, decodes its
                               claims client-side for display only (the backend is what
                               actually verifies the signature, api/v1/deps.py)
-  streamChat.ts                POST + manual SSE parsing, sends the JWT as `Authorization: Bearer`
+  streamChat.ts                POST + manual SSE parsing, sends the JWT as `Authorization: Bearer`;
+                              parses both the token-delta `data:` frames and the `tool_start`/
+                              `tool_end` SSE event types (matched by run_id) into onToolStart/onToolEnd
+  conversations.ts             REST client for backend/app/api/v1/endpoints/conversations.py —
+                              list/rename/delete + read a thread's stored message history
+                              (each assistant message may carry a `steps` array)
+  documents.ts                  REST client for backend/app/api/v1/endpoints/documents.py —
+                              list/upload (multipart)/delete
+  businessUnits.ts               Shared BUSINESS_UNIT_LABELS map (tv/plus/news/group → display name)
+  theme.ts                     get/apply the light/dark theme (localStorage, falls back to
+                              prefers-color-scheme on first load)
   renderInlineMarkdown.tsx      Bold/italic/code only — not a full markdown renderer
 ```
+
+## Tool-call steps and Manage Documents
+
+Both additions came from a second Claude Design pass on the same Nova
+Chat project (`Nova Chat.dc.html`) and are real, backend-verified
+features, not visual-only additions:
+
+- **Tool-call steps**: `ChatWindow` keeps a `liveSteps` ref+state pair
+  updated by `streamChat`'s `onToolStart`/`onToolEnd` callbacks during a
+  send; once the stream finishes, the accumulated steps are attached to
+  the just-finished message (`message.steps`) so `MessageBubble` renders
+  `StepsTrace` (collapsed) instead of `LiveSteps` (open) from then on —
+  including after a page reload, since `getConversationMessages` returns
+  `steps` per historical assistant message too.
+- **Manage Documents**: `DocumentsView` computes which business units the
+  caller can *view* (their JWT's `business_units`, or all three if
+  `group`/`admin`) and which they can *manage* (`admin` tier in that
+  specific unit, or `group`/`admin`) entirely from the already-decoded
+  JWT claims — the backend independently re-checks the same rules on
+  every request (`documents.py`'s `_require_view`/`_require_manage`), so
+  the frontend's gating is a UX nicety, not the real authorization
+  boundary. Non-admins can browse/search a unit's documents but see no
+  upload button and no delete control on any row.
+- **Deliberately not built**: the design mock's inline document preview
+  (Markdown rendered client-side, a PDF placeholder panel) — would need a
+  new backend endpoint to fetch a document's raw content from MinIO plus
+  a markdown renderer, and wasn't core to "CRUD".
+
+## Conversation history is real, not local-only
+
+Unlike phase 1's throwaway `thread_id` (regenerated every page load),
+conversations are now backed by a real `conversations` table
+(`backend/app/models.py`'s `Conversation`) plus reads against the
+LangGraph checkpointer's own stored state (`GET
+/conversations/{id}/messages`) — selecting a past conversation from the
+sidebar actually loads its prior messages, and deleting one purges both
+the metadata row and the checkpointer's thread via `adelete_thread`.
+`ChatWindow` still generates a `thread_id` client-side (`crypto.randomUUID()`)
+for a brand new chat, same mechanism as before — it's just no longer
+discarded on reload once a message has been sent under it.
+
+**Deliberately not built**: the design mock's citation chips and stat-grid
+cards on assistant messages, and Settings' "clear all history" button.
+The backend's chat SSE stream only emits token deltas and a bare `done`
+event (no structured citation/stats metadata — that would need a new SSE
+event type off `on_tool_end`, not just a frontend change), and "clear all"
+was explicitly descoped during scoping for this pass. Wiring either up is
+future work, not a bug.
 
 ## Auth (ADR-0021)
 

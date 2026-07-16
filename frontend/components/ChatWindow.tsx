@@ -2,32 +2,58 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getClaims, getToken, logout, TokenClaims } from "../lib/auth";
+import { getClaims, getToken, logout as clearToken, TokenClaims } from "../lib/auth";
+import {
+  Conversation,
+  deleteConversation,
+  getConversationMessages,
+  listConversations,
+  renameConversation,
+} from "../lib/conversations";
+import { BUSINESS_UNIT_LABELS } from "../lib/businessUnits";
 import { streamChat, UnauthorizedError } from "../lib/streamChat";
+import { applyTheme, getStoredTheme, Theme } from "../lib/theme";
 import { ChatInput } from "./ChatInput";
+import { DocumentsView } from "./DocumentsView";
 import { Message, MessageBubble } from "./MessageBubble";
+import { NovaMark } from "./NovaMark";
+import { SettingsView } from "./SettingsView";
+import { Sidebar } from "./Sidebar";
+import { LiveStepData } from "./ToolSteps";
 
 function newThreadId(): string {
   return crypto.randomUUID();
 }
 
-const BUSINESS_UNIT_LABELS: Record<string, string> = {
-  tv: "MCN TV",
-  plus: "MCN+",
-  news: "MCN News",
-  group: "MCN Group",
-};
+function conversationTitle(text: string): string {
+  return text.length > 42 ? text.slice(0, 42) + "…" : text;
+}
+
+const STARTER_PROMPTS = [
+  "What's our SOP for content takedown requests?",
+  "Show me this month's viewership for MCN TV",
+  "How do I request press credentials for an event?",
+  "Summarize last week's ad sales performance",
+];
+
+type View = "empty" | "active" | "settings" | "documents";
 
 export function ChatWindow() {
   const router = useRouter();
   const [claims, setClaims] = useState<TokenClaims | null>(null);
+  const [theme, setTheme] = useState<Theme>("light");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [view, setView] = useState<View>("empty");
   const [busy, setBusy] = useState(false);
+  const [liveSteps, setLiveSteps] = useState<LiveStepData[]>([]);
   const threadIdRef = useRef<string>(newThreadId());
+  const liveStepsRef = useRef<LiveStepData[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Which business units this identity can access is entirely a function of
-  // the JWT's claims (ADR-0021) — there is no manual "pick a unit" control
-  // anymore; the agent scopes itself to whatever the token actually grants.
   useEffect(() => {
     const c = getClaims();
     if (!c) {
@@ -35,11 +61,74 @@ export function ChatWindow() {
       return;
     }
     setClaims(c);
+    setTheme(getStoredTheme());
   }, [router]);
 
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token || !claims) return;
+    listConversations(token)
+      .then(setConversations)
+      .catch(() => {})
+      .finally(() => setConversationsLoading(false));
+  }, [claims]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
   const handleLogout = () => {
-    logout();
+    clearToken();
     router.replace("/login");
+  };
+
+  const newChat = () => {
+    threadIdRef.current = newThreadId();
+    setActiveConvId(null);
+    setMessages([]);
+    setView("empty");
+  };
+
+  const selectConversation = async (id: string) => {
+    const token = getToken();
+    if (!token) return;
+    threadIdRef.current = id;
+    setActiveConvId(id);
+    setView("active");
+    setMessages([]);
+    try {
+      const stored = await getConversationMessages(token, id);
+      setMessages(stored);
+    } catch {
+      // leave the (empty) message list — the conversation still opens
+    }
+  };
+
+  const handleRename = async (id: string, title: string) => {
+    const token = getToken();
+    if (!token) return;
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+    try {
+      await renameConversation(token, id, title);
+    } catch {
+      // optimistic update stands; a stale title on the next full list refresh is a minor inconsistency
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const token = getToken();
+    if (!token) return;
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeConvId) newChat();
+    try {
+      await deleteConversation(token, id);
+    } catch {
+      // row is already gone from the visible list; a failed server-side delete just leaves an orphaned thread
+    }
   };
 
   const handleSend = async (text: string) => {
@@ -49,25 +138,56 @@ export function ChatWindow() {
       return;
     }
 
+    const isNewConversation = activeConvId === null;
+    const threadId = threadIdRef.current;
+
+    if (isNewConversation) {
+      setActiveConvId(threadId);
+      setConversations((prev) => [{ id: threadId, title: conversationTitle(text), updated_at: new Date().toISOString() }, ...prev]);
+    } else {
+      setConversations((prev) =>
+        prev
+          .map((c) => (c.id === threadId ? { ...c, updated_at: new Date().toISOString() } : c))
+          .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      );
+    }
+
+    setView("active");
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setBusy(true);
+    liveStepsRef.current = [];
+    setLiveSteps([]);
 
     try {
       await streamChat({
-        threadId: threadIdRef.current,
+        threadId,
         message: text,
         token,
         onToken: (token) => {
           setMessages((prev) => {
             const next = [...prev];
-            next[next.length - 1] = { role: "assistant", content: next[next.length - 1].content + token };
+            next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + token };
             return next;
           });
         },
+        onToolStart: (step) => {
+          liveStepsRef.current = [...liveStepsRef.current, { ...step, status: "active" }];
+          setLiveSteps(liveStepsRef.current);
+        },
+        onToolEnd: (id) => {
+          liveStepsRef.current = liveStepsRef.current.map((s) => (s.id === id ? { ...s, status: "done" } : s));
+          setLiveSteps(liveStepsRef.current);
+        },
+      });
+      const finishedSteps = liveStepsRef.current.map(({ type, label }) => ({ type, label }));
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { ...next[next.length - 1], steps: finishedSteps };
+        return next;
       });
     } catch (err) {
       if (err instanceof UnauthorizedError) {
-        logout();
+        clearToken();
         router.replace("/login");
         return;
       }
@@ -78,66 +198,167 @@ export function ChatWindow() {
       });
     } finally {
       setBusy(false);
+      liveStepsRef.current = [];
+      setLiveSteps([]);
     }
   };
 
   if (!claims) return null;
 
-  const unitLabels = claims.business_units.map((u) => BUSINESS_UNIT_LABELS[u.code] ?? u.code);
+  const unitLabel = claims.business_units.length
+    ? claims.business_units.map((u) => BUSINESS_UNIT_LABELS[u.code] ?? u.code).join(", ")
+    : "No business unit access";
+
+  const activeConv = conversations.find((c) => c.id === activeConvId);
+  const headerTitle =
+    view === "active"
+      ? activeConv?.title ?? "Conversation"
+      : view === "settings"
+        ? "Settings"
+        : view === "documents"
+          ? "Manage documents"
+          : null;
+
+  const accessibleUnits = claims.business_units
+    .map((u) => u.code)
+    .filter((code): code is "tv" | "plus" | "news" => code === "tv" || code === "plus" || code === "news");
+  const isGroupAdmin = claims.business_units.some((u) => u.code === "group" && u.role === "admin");
+  const documentUnits = isGroupAdmin ? (["tv", "plus", "news"] as const) : accessibleUnits;
+  const canManageUnit = (unit: string) => isGroupAdmin || claims.business_units.some((u) => u.code === unit && u.role === "admin");
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        maxWidth: 760,
-        margin: "0 auto",
-      }}
-    >
-      <header
-        style={{
-          padding: "16px 20px",
-          borderBottom: "1px solid var(--nova-border)",
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.2 }}>Nova</div>
-          <div style={{ fontSize: 12.5, color: "var(--nova-ink-muted)" }}>
-            {claims.display_name} · {unitLabels.length > 0 ? unitLabels.join(", ") : "No business unit access"}
-          </div>
-        </div>
-        <button
-          onClick={handleLogout}
+    <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden" }}>
+      {!sidebarCollapsed && (
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(true)}
+          conversations={conversations}
+          loading={conversationsLoading}
+          activeConvId={activeConvId}
+          onSelect={selectConversation}
+          onNewChat={newChat}
+          onRename={handleRename}
+          onDelete={handleDelete}
+          displayName={claims.display_name}
+          unitLabel={unitLabel}
+          onOpenSettings={() => setView("settings")}
+          onOpenDocuments={() => setView("documents")}
+          isDocumentsActive={view === "documents"}
+          onLogout={handleLogout}
+        />
+      )}
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "var(--nova-bg)" }}>
+        <header
           style={{
-            fontSize: 11.5,
-            color: "var(--nova-ink-muted)",
-            border: "1px solid var(--nova-border)",
-            borderRadius: 999,
-            padding: "4px 10px",
-            background: "var(--nova-surface)",
-            cursor: "pointer",
+            height: 58,
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 20px",
+            borderBottom: "1px solid var(--nova-border)",
+            background: "var(--nova-bg)",
           }}
         >
-          Log out
-        </button>
-      </header>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            {sidebarCollapsed && (
+              <button onClick={() => setSidebarCollapsed(false)} aria-label="Expand sidebar" style={iconBtnStyle}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />
+                  <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.4" />
+                </svg>
+              </button>
+            )}
+            {view === "empty" ? <NovaMark size={18} /> : (
+              <div
+                style={{
+                  font: "600 15px/1.3 var(--font-figtree),sans-serif",
+                  color: "var(--nova-ink)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {headerTitle}
+              </div>
+            )}
+          </div>
+        </header>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 0" }}>
-        {messages.length === 0 && (
-          <div style={{ color: "var(--nova-ink-muted)", fontSize: 14, marginTop: 40, textAlign: "center" }}>
-            Ask Nova about MCN Group's SOPs, your business unit's data, or anything else.
+        {view === "empty" && (
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 24px" }}>
+            <div style={{ maxWidth: 640, width: "100%", textAlign: "center" }}>
+              <div className="nova-serif" style={{ fontStyle: "italic", fontWeight: 600, fontSize: 34, lineHeight: 1.15, color: "var(--nova-ink)", marginBottom: 10 }}>
+                How can I help, {claims.display_name.split(" ")[0]}?
+              </div>
+              <div style={{ font: "400 15.5px/1.6 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginBottom: 36 }}>
+                Ask about internal policy, business data, or anything on the web.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, textAlign: "left" }}>
+                {STARTER_PROMPTS.map((p) => (
+                  <button key={p} onClick={() => handleSend(p)} style={starterCardStyle}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
-        {messages.map((message, i) => (
-          <MessageBubble key={i} message={message} />
-        ))}
-      </div>
 
-      <ChatInput onSend={handleSend} disabled={busy} />
+        {view === "active" && (
+          <div ref={scrollRef} style={{ flex: 1, overflowY: "auto" }}>
+            <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 24px 12px", display: "flex", flexDirection: "column", gap: 20 }}>
+              {messages.map((m, i) => (
+                <MessageBubble
+                  key={i}
+                  message={m}
+                  isStreaming={busy && i === messages.length - 1}
+                  liveSteps={busy && i === messages.length - 1 ? liveSteps : undefined}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {view === "settings" && (
+          <SettingsView
+            displayName={claims.display_name}
+            email={claims.email}
+            unitLabel={unitLabel}
+            theme={theme}
+            onToggleTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+            onLogout={handleLogout}
+          />
+        )}
+
+        {view === "documents" && <DocumentsView units={documentUnits} canManageUnit={canManageUnit} />}
+
+        {view !== "settings" && view !== "documents" && <ChatInput onSend={handleSend} disabled={busy} />}
+      </div>
     </div>
   );
 }
+
+const iconBtnStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "var(--nova-ink-muted)",
+  cursor: "pointer",
+  padding: 7,
+  borderRadius: 7,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const starterCardStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "16px 16px",
+  borderRadius: 12,
+  border: "1px solid var(--nova-border)",
+  background: "var(--nova-surface)",
+  color: "var(--nova-ink)",
+  font: "400 13.5px/1.5 var(--font-figtree),sans-serif",
+  cursor: "pointer",
+};

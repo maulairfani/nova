@@ -267,9 +267,113 @@ MinIO — both triggered ingestion automatically end-to-end with no manual
 step, and a live chat question against the PDF's content came back
 correctly grounded and cited before the test artifacts were cleaned up.
 
-**Still outstanding**: `business_unit_roles`' tiers (`finance`, `admin`)
-are stored and forwarded but not enforced by any MCP server's SQL
-Analytics Tool yet (ADR-0021's Consequences) - every unit member currently
-gets the same access regardless of tier. Also still pending: the
-cross-business-unit synthesis flow (TDD §6.3, now practical to build with
-real multi-unit identities like `fajar.nugroho@mcngroup.example`).
+**Frontend redesign + real conversation history — complete and verified
+end-to-end**: the chat UI was redesigned to a warm editorial visual
+system matching MCN Group's brand (design authored in Claude Design,
+implemented as real Next.js/React components — see `frontend/CLAUDE.md`)
+and gained a proper app shell: a sidebar with searchable conversation
+history grouped by recency, inline rename/delete, and a Settings view
+(profile, light/dark theme toggle, log out). This required real backend
+work, not just a frontend restyle: phase 1's `thread_id` was regenerated
+on every page load with nothing to list, so a new `Conversation` model +
+migration (`backend/app/models.py`, sidebar metadata only - title,
+owner, recency) plus a new `conversations.py` endpoint (list/rename/
+delete, and a read of a thread's message history straight from the
+LangGraph checkpointer's stored state rather than rebuilding the whole
+agent) now back the sidebar for real. `chat.py` upserts that row's title
+(from the first message) and `updated_at` on every message. Deleting a
+conversation purges both the metadata row and the checkpointer's own
+thread via `adelete_thread` - leaving only one would either orphan
+unlistable LangGraph state or leave a sidebar entry pointing at nothing.
+Deliberately descoped from the design mock: citation chips and stat-grid
+cards on assistant messages (the backend's chat SSE stream only emits
+token deltas today, no structured citation metadata to render) and
+Settings' "clear all history" control. Verified via the full backend
+unit suite (17/17, no regressions), the new Alembic migration applied
+against a real `nova_core`, a clean Next.js production build, and a live
+`docker compose` stack exercised end-to-end via curl: login → send a
+message → conversation appears in the list with an auto-derived title →
+rename → fetch its full message history (both turns, correctly
+persisted) → delete (row and checkpointer thread both gone).
+
+**Visible tool-call steps + Manage Documents — complete and verified
+end-to-end**: a second Claude Design pass on the Nova Chat project added
+two features, both implemented as real functionality rather than just
+UI. (1) The chat UI now shows which tools the agent called for each
+answer (e.g. "Searched MCN TV knowledge base") as a collapsible trace -
+`chat.py`'s SSE stream forwards `on_tool_start`/`on_tool_end` events
+(new `tool_start`/`tool_end` event types alongside the existing token
+deltas), mapped to human-readable labels by a name convention already in
+place (`tv_kb_search` → "Searched MCN TV knowledge base") in a new
+`app/agent/tool_labels.py`, shared with `conversations.py`'s history
+reconstruction so a reloaded past conversation shows the same steps a
+live one did. (2) A "Manage documents" sidebar item opens a real CRUD
+screen for each business unit's knowledge base source files
+(`backend/app/api/v1/endpoints/documents.py`) - this is the first real
+use of `business_unit_roles`' `admin` tier anywhere in the codebase
+(stored since ADR-0021, never enforced until now): unit admins manage
+only their own unit, `group_admin` manages every unit, everyone else
+gets read-only browsing. Upload writes directly into the real ingestion
+pipeline's MinIO bucket (ADR-0022) rather than a parallel path - the
+existing webhook → Celery → parse/embed/upsert flow runs unchanged, with
+one addition: the endpoint pre-creates the `documents` row with a
+caller-chosen title before the object lands, and `worker/db.py`'s
+`insert_pending`/`mark_ingested` were changed to get-or-create by
+`(business_unit_code, object_key)` (new unique constraint, migration
+`0004`) and never clobber a human-provided title with the parser's
+extracted one. Delete removes the Qdrant points, the MinIO object, and
+the database row, in that order. Verified against the live stack: a
+real chat request's tool-step SSE events and their reconstruction from a
+reloaded conversation; an employee getting 403 on upload but a normal
+list; a `group_admin` uploading with a custom title, watching it fail
+ingestion with a real error (empty test file - confirming the get-or-create
+path and title preservation on the failure branch), then succeeding with
+real content (title preserved through `mark_ingested`, 2 chunks embedded),
+then deleting it cleanly.
+
+**KB seeding moved onto the real ingestion pipeline — the old
+direct-to-Qdrant bypass is gone**: `mcp_servers/{tv,plus,news}/seed/seed_qdrant.py`
+(and their `seed/documents/` markdown files) were retired, per that
+script's own long-standing note that it should be retired once the real
+pipeline existed, not kept alongside it — now that Manage Documents
+exposed the gap concretely (seed-bypassed docs never had a `documents`
+row, so they were invisible in that screen despite being searchable).
+The project's dummy SOP docs now live at `documents/kb/<unit>/` (repo
+root, one shared location instead of duplicated per MCP server) — mostly
+PDF now, one Markdown file per unit, to exercise both of `worker/`'s
+parser paths with real content. The 6 that changed format were
+regenerated as real, text-extractable PDFs (not scanned images) from
+their original Markdown. A new `worker/seed_documents.py` uploads them
+into each unit's MinIO bucket, the same real path (webhook → Celery →
+parse/embed/upsert) any other upload takes — no code path in the
+codebase writes to Qdrant directly anymore. `README.md` and CI
+(`.github/workflows/ci.yml`) were updated to match, including a new CI
+step that polls the `documents` table for `ingested` status before
+running the integration test, since ingestion is now asynchronous where
+the old bypass was synchronous.
+
+Seeding 9 documents at once (3 per unit, concurrently) surfaced two real
+bugs in `worker/` that single-file testing never had — both fixed and
+documented rather than silently patched: (1) `ensure_collection`'s
+`collection_exists` → `create_collection` was never atomic, so two
+Celery tasks racing to create the same not-yet-existing collection had
+the loser crash on Qdrant's `409 Conflict` instead of treating "already
+exists" as success — fixed in both the live copy
+(`worker/qdrant_helper.py`) and the now-dead duplicate
+(`mcp_servers/common/qdrant_client.py`, which lost its only caller when
+`seed_qdrant.py` was deleted and had its own `ensure_collection` removed
+outright rather than fixed-and-left-unused). (2) `mark_ingested` never
+cleared a prior `error_message` on a successful retry, so a document
+that failed once and later succeeded still showed a stale error in
+Manage Documents despite `status: ingested`.
+
+**Still outstanding**: `business_unit_roles`' `finance` tier and the
+`admin` tier's enforcement in each MCP server's SQL Analytics Tool are
+stored and forwarded but not enforced (ADR-0021's Consequences) - every
+unit member currently gets the same *data-query* access regardless of
+tier (the `admin` tier is now enforced for document management, above -
+a separate authorization surface, not the same gap). Also still pending:
+the cross-business-unit synthesis flow (TDD §6.3, now practical to build
+with real multi-unit identities like `fajar.nugroho@mcngroup.example`);
+the design mock's inline document preview (Markdown/PDF viewer) was
+descoped from the Manage Documents build.

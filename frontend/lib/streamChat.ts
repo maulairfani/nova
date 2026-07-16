@@ -1,10 +1,18 @@
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+export interface ToolStep {
+  id: string;
+  type: "kb" | "data" | "web";
+  label: string;
+}
+
 export interface StreamChatOptions {
   threadId: string;
   message: string;
   token: string;
   onToken: (token: string) => void;
+  onToolStart?: (step: ToolStep) => void;
+  onToolEnd?: (id: string) => void;
   signal?: AbortSignal;
 }
 
@@ -13,7 +21,15 @@ export interface StreamChatOptions {
 export class UnauthorizedError extends Error {}
 
 /** POST + manual SSE parsing (ADR-0017) — native EventSource doesn't support POST bodies. */
-export async function streamChat({ threadId, message, token, onToken, signal }: StreamChatOptions): Promise<void> {
+export async function streamChat({
+  threadId,
+  message,
+  token,
+  onToken,
+  onToolStart,
+  onToolEnd,
+  signal,
+}: StreamChatOptions): Promise<void> {
   const response = await fetch(`${BACKEND_URL}/api/v1/chat`, {
     method: "POST",
     headers: {
@@ -44,10 +60,20 @@ export async function streamChat({ threadId, message, token, onToken, signal }: 
     buffer = frames.pop() ?? "";
 
     for (const frame of frames) {
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+      const lines = frame.split("\n");
+      const dataLine = lines.find((line) => line.startsWith("data:"));
       if (!dataLine) continue;
+      const eventLine = lines.find((line) => line.startsWith("event:"));
+      const eventType = eventLine ? eventLine.slice("event:".length).trim() : "message";
       const payload = JSON.parse(dataLine.slice("data:".length).trim());
-      if (payload.token) onToken(payload.token);
+
+      if (eventType === "message" && payload.token) {
+        onToken(payload.token);
+      } else if (eventType === "tool_start") {
+        onToolStart?.(payload as ToolStep);
+      } else if (eventType === "tool_end") {
+        onToolEnd?.(payload.id);
+      }
     }
   }
 }

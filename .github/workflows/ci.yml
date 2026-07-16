@@ -184,17 +184,34 @@ jobs:
               sleep 2
             done
           done
-      - name: MCN TV — migrate + seed (only unit exercised by the integration test)
+      - name: MCN TV — migrate + seed analytics data (only unit exercised by the integration test)
         run: |
           docker compose run --rm mcp-tv alembic upgrade head
           docker compose run --rm mcp-tv python -m seed.seed_postgres
-          docker compose run --rm mcp-tv python -m seed.seed_qdrant
       - name: Set up the conversation-checkpoint tables
         run: docker compose run --rm backend-api python setup_checkpointer.py
       - name: nova_core — migrate identity schema + seed dummy users (ADR-0021)
         run: |
           docker compose run --rm backend-api alembic upgrade head
           docker compose run --rm backend-api python seed_users.py
+      - name: Seed MCN TV's KB documents through the real ingestion pipeline
+        run: |
+          docker compose run --rm worker python bootstrap_buckets.py
+          docker compose run --rm -v "$PWD/documents/kb:/kb:ro" worker python seed_documents.py
+      - name: Wait for the seeded document to finish ingesting
+        # Ingestion is async (webhook -> Celery) - the integration test's
+        # question is only answerable once the seeded SOP is actually
+        # embedded and upserted into Qdrant, not just uploaded to MinIO.
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker compose exec -T postgres-core psql -U nova_core -d nova_core -tAc \
+              "select status from documents where business_unit_code='tv' and object_key='01-ad-slot-booking-sop.md'")
+            echo "ingestion status: ${status:-<no row yet>} ($i/30)"
+            [ "$status" = "ingested" ] && exit 0
+            if [ "$status" = "failed" ]; then echo "ingestion failed"; docker compose logs worker; exit 1; fi
+            sleep 2
+          done
+          echo "timed out waiting for ingestion"; docker compose logs worker; exit 1
       - name: Run the integration test
         run: |
           docker compose run --rm -v "$PWD/requirements-test.txt:/requirements-test.txt:ro" \

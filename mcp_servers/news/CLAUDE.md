@@ -15,15 +15,15 @@ Same as `mcp_servers/tv/` — `server.py`, `auth.py`
 - Schema covers `articles`, `article_engagement` (page views, unique
   visitors, time on page), and `ad_revenue` (by ad slot type) — reflecting
   MCN News's digital-first metrics rather than TV's daypart/rating model.
-- 3 seeded SOPs cover the newsroom's editorial lifecycle: fact-checking
-  before publication, expedited breaking-news publication, and
+- 3 seeded SOPs (see `mcp_servers/tv/CLAUDE.md` for where seeding
+  actually lives — [`documents/kb/news/`](../../documents/kb/news/))
+  cover the newsroom's editorial lifecycle: fact-checking before
+  publication, expedited breaking-news publication, and
   correction/retraction handling.
 
 ## Phase-1 simplifications (inherited from the TV template)
 
-Same as `mcp_servers/tv/CLAUDE.md`: KB seeding bypasses the real MinIO +
-Celery ingestion pipeline (TDD §6.5) via a one-off `seed/seed_qdrant.py`
-script; authorization is a minimal role/claim check
+Authorization is a minimal role/claim check
 (`ALLOWED_ROLES = {"mcn_news_employee", "group_admin"}` or `"news"` in
 the caller's business units), against an unverified dummy identity (see
 `backend/CLAUDE.md`).

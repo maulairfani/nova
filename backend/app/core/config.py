@@ -18,6 +18,18 @@ class Settings(BaseSettings):
     core_database_admin_url: str
     redis_url: str
 
+    # Manage Documents (upload/delete a KB source file) - the only place
+    # backend/ talks to MinIO/Qdrant directly rather than through an MCP
+    # server; runtime *querying* of a business unit's data stays exclusively
+    # in that unit's MCP server (the Data Mesh read path, ADR-0005), this is
+    # an administrative write path onto the same object/vector storage
+    # worker/ already uses for the real ingestion pipeline (ADR-0022).
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool = False
+    qdrant_url: str
+
     openrouter_api_key: str
     openrouter_llm_model: str = "openai/gpt-5.4-nano"
 

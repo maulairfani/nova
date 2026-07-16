@@ -18,23 +18,21 @@ alembic/              Schema migrations (ADR-0016) — this server owns them,
                       ever connects to postgres-tv
 seed/
   seed_postgres.py     Dummy analytics data (idempotent — no-ops if already seeded)
-  seed_qdrant.py        Dummy KB documents -> embeddings (idempotent — deterministic point IDs)
-  documents/            The 3 dummy SOP markdown files actually seeded
 ```
 
-## Phase-1 simplification: KB seeding bypasses the real ingestion pipeline
+## KB seeding goes through the real ingestion pipeline
 
-TDD §6.5 describes an async ingestion pipeline (MinIO + Celery) that
-doesn't exist yet (phase 2). Phase 1 needs *something* in Qdrant for the
-KB Search Tool to search, so `seed/seed_qdrant.py` reads the 3 markdown
-files in `seed/documents/` directly and embeds them — bypassing MinIO
-entirely. This is a one-off manual script (see root README's setup
-steps), not something that runs automatically on container start (to
-avoid needless re-embedding cost/races on every restart).
-
-**When phase 2 builds the real ingestion pipeline, this script should be
-retired**, not extended — it's explicitly a stand-in, not a permanent
-lightweight alternative.
+Phase 1 had a `seed/seed_qdrant.py` script that embedded MCN TV's 3 dummy
+SOP docs directly into Qdrant, bypassing MinIO entirely — a stand-in for
+when the real async ingestion pipeline (MinIO + Celery, ADR-0022) didn't
+exist yet. That pipeline now exists (`worker/`), so the bypass was
+retired rather than kept alongside it: MCN TV's dummy KB documents live
+at [`documents/kb/tv/`](../../documents/kb/tv/) (repo root, shared across
+all 3 business units, not colocated here) and are seeded by uploading
+them into MinIO via `worker/seed_documents.py` (see root README's setup
+steps) — the exact same path a real upload through Manage Documents or
+the MinIO console takes. There is no direct-to-Qdrant shortcut left
+anywhere in the codebase.
 
 ## Phase-1 simplification: dummy authorization
 

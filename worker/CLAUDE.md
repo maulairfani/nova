@@ -19,13 +19,18 @@ qdrant_helper.py        Same duplication reasoning, mirrors mcp_servers/common/q
 minio_client.py         MinIO connection + object download/bucket helpers
 db.py                  Writes to nova_core's `documents` table (schema owned by backend/, ADR-0021)
 bootstrap_buckets.py    One-off setup: creates buckets, subscribes them to the webhook target
+seed_documents.py        One-off dev seed: uploads documents/kb/<unit>/* (repo root) into each
+                        unit's bucket - the real ingestion path, not a Qdrant shortcut (below)
 ```
 
 ## How a document actually gets ingested
 
-1. Something (a human via the MinIO console at `localhost:9011`, or a
-   script) uploads a file to one of the 3 buckets (`mcn-tv`, `mcn-plus`,
-   `mcn-news`).
+1. Something uploads a file to one of the 3 buckets (`mcn-tv`,
+   `mcn-plus`, `mcn-news`) - a human via the MinIO console
+   (`localhost:9011`), a script, or (the real product path now)
+   `backend/`'s Manage Documents endpoint (`backend/app/api/v1/endpoints/documents.py`),
+   which also pre-creates the `documents` row itself with a caller-chosen
+   title before writing the object, unlike the other two.
 2. MinIO's `INGEST` webhook notification target (configured via
    `MINIO_NOTIFY_WEBHOOK_*` env vars on the `minio` service,
    `docker-compose.yaml`) POSTs an `s3:ObjectCreated:*` event to
@@ -39,6 +44,31 @@ bootstrap_buckets.py    One-off setup: creates buckets, subscribes them to the w
    that business unit's Qdrant collection, and writes/updates a row in
    `documents` (`pending` → `ingested`/`failed`).
 
+`db.py`'s `insert_pending` is a **get-or-create** by
+`(business_unit_code, object_key)` (unique constraint, backend/'s
+migration `0004`), not a blind insert — if the Manage Documents endpoint
+already created the row (with a human-provided title) before the object
+landed in MinIO, this just returns that row's id instead of inserting a
+duplicate. `mark_ingested` only overwrites `title` with the parser's
+extracted title when the row's title still equals its `object_key`
+placeholder — a human-provided title from the upload endpoint is never
+clobbered by the parsed one. Uploads that don't go through the backend
+endpoint (MinIO console, `seed_documents.py`) are unaffected: no row
+exists yet, so `insert_pending` creates one exactly as before, and its
+placeholder title still gets replaced by the parsed title on success.
+`mark_ingested` also clears any `error_message` left over from a prior
+failed attempt — found missing when seeding surfaced a real retry (a
+document that failed once and later succeeded still showed a stale error
+in Manage Documents despite `status: ingested`).
+
+`qdrant_helper.py`'s `ensure_collection` catches a `409 Conflict` from
+`create_collection` rather than letting it crash the task —
+`collection_exists` → `create_collection` isn't atomic, so two Celery
+tasks for the same unit's not-yet-created collection (Celery's default
+prefork concurrency; `seed_documents.py` enqueues 3 documents per unit at
+once) can race, and the loser hitting Qdrant's "already exists" error is
+exactly the outcome `ensure_collection` wants, not a real failure.
+
 ## One-off setup (first run only)
 
 MinIO's env vars configure the webhook *target*, but each *bucket* still
@@ -47,6 +77,27 @@ needs an explicit subscription — not something env vars alone can do:
 ```bash
 docker compose run --rm worker python bootstrap_buckets.py
 ```
+
+## Seeding dummy KB documents (first run only, or after wiping volumes)
+
+There's no direct-to-Qdrant shortcut anymore — `mcp_servers/tv/`'s old
+`seed/seed_qdrant.py` (and its `plus`/`news` equivalents) were retired
+once this real pipeline existed, per that decision's own note that it
+should be retired, not kept alongside it. The project's dummy SOP docs
+now live at `documents/kb/<unit>/` (repo root, shared across units, not
+duplicated per-server) — `seed_documents.py` uploads them into each
+unit's bucket, the same real path any other upload takes:
+
+```bash
+docker compose run --rm -v "$PWD/documents/kb:/kb:ro" worker python seed_documents.py
+```
+
+Requires `bootstrap_buckets.py` (above) and backend/'s `alembic upgrade
+head` (creates the `documents` table) to have already run. Re-running is
+safe (`fput_object` overwrites by key, `insert_pending`'s get-or-create
+avoids duplicate rows) — most of the seeded docs are PDF, one Markdown
+file per unit, to exercise both parser paths (`parser.py`) with real
+content rather than only ever testing the Markdown path.
 
 ## Verifying changes here independent of the full webhook flow
 

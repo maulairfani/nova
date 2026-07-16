@@ -120,9 +120,7 @@ docker compose up -d --build
 ### 3. One-off setup (first run only, or after wiping volumes)
 
 These are deliberately manual, one-off steps rather than automatic
-container-start behavior — see [`mcp_servers/tv/CLAUDE.md`](mcp_servers/tv/CLAUDE.md)
-for why the seed scripts exist alongside the real ingestion pipeline
-(`worker/`, ADR-0022) rather than being replaced by it.
+container-start behavior.
 
 ```bash
 # Create each business unit's analytics schema + read-only role
@@ -135,11 +133,6 @@ docker compose run --rm mcp-tv python -m seed.seed_postgres
 docker compose run --rm mcp-plus python -m seed.seed_postgres
 docker compose run --rm mcp-news python -m seed.seed_postgres
 
-# Embed each unit's dummy SOP documents into Qdrant
-docker compose run --rm mcp-tv python -m seed.seed_qdrant
-docker compose run --rm mcp-plus python -m seed.seed_qdrant
-docker compose run --rm mcp-news python -m seed.seed_qdrant
-
 # Create LangGraph's conversation-checkpoint tables
 docker compose run --rm backend-api python setup_checkpointer.py
 
@@ -149,13 +142,21 @@ docker compose run --rm backend-api python seed_users.py
 
 # Create the ingestion pipeline's MinIO buckets + webhook subscriptions (ADR-0022)
 docker compose run --rm worker python bootstrap_buckets.py
+
+# Seed each unit's dummy KB documents through the real ingestion pipeline
+# (uploads to MinIO, same as a human upload via Manage Documents or the
+# MinIO console — no direct-to-Qdrant shortcut, see worker/CLAUDE.md)
+docker compose run --rm -v "$PWD/documents/kb:/kb:ro" worker python seed_documents.py
 ```
 
-Once bootstrapped, uploading a file to a bucket (via the MinIO console at
-[http://localhost:9011](http://localhost:9011), credentials
-`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` from your `.env`) automatically
-ingests it — no extra step. See [`worker/CLAUDE.md`](worker/CLAUDE.md) for
-how to verify the pipeline independent of the webhook.
+Once bootstrapped, uploading a file to a bucket — via the MinIO console at
+[http://localhost:9011](http://localhost:9011) (credentials
+`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` from your `.env`), or the app's own
+Manage Documents screen — automatically ingests it, same as the seed step
+above. Ingestion is asynchronous (webhook → Celery), so a freshly-seeded
+or freshly-uploaded document briefly shows `pending` in Manage Documents
+before flipping to `ingested`. See [`worker/CLAUDE.md`](worker/CLAUDE.md)
+for how to verify the pipeline independent of the webhook.
 
 See [`backend/SEED_USERS.md`](backend/SEED_USERS.md) for the seeded
 accounts (email/password/business unit/role) — there's no signup flow.

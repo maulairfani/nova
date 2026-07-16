@@ -13,6 +13,10 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setError("Enter your email and password to continue.");
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -26,68 +30,116 @@ export default function LoginPage() {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        maxWidth: 360,
-        margin: "0 auto",
-        padding: "0 20px",
-      }}
-    >
-      <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Nova</div>
-      <div style={{ fontSize: 13, color: "var(--nova-ink-muted)", marginBottom: 28 }}>
-        MCN Group internal assistant
+    <div style={{ display: "flex", height: "100vh", width: "100%", background: "var(--nova-bg)" }}>
+      <div
+        style={{
+          width: "42%",
+          minWidth: 360,
+          background: "var(--nova-login-panel-bg)",
+          color: "#f7f5f2",
+          display: "flex",
+          flexDirection: "column",
+          padding: "56px 48px",
+        }}
+      >
+        <div style={{ font: "600 11px/1 var(--font-figtree),sans-serif", letterSpacing: ".16em", color: "rgba(247,245,242,0.7)", textTransform: "uppercase" }}>
+          MCN Group
+        </div>
+        <div
+          className="nova-serif"
+          style={{ fontStyle: "italic", fontWeight: 600, fontSize: 56, lineHeight: 1.05, color: "#f7f5f2", marginTop: 18, display: "flex", alignItems: "center", gap: 12 }}
+        >
+          <span style={{ width: 14, height: 14, borderRadius: 3, background: "var(--nova-accent)", display: "inline-block", transform: "rotate(8deg)" }} />
+          Nova
+        </div>
+        <div style={{ font: "400 15px/1.6 var(--font-figtree),sans-serif", color: "rgba(247,245,242,0.7)", marginTop: 14, maxWidth: 320 }}>
+          Internal AI assistant for MCN Group — grounded in your business unit&apos;s knowledge base, live data, and the web.
+        </div>
+        <div style={{ marginTop: "auto", font: "400 12.5px/1.5 var(--font-figtree),sans-serif", color: "rgba(247,245,242,0.45)" }}>
+          Free-to-Air TV · Streaming &amp; Short-Form · Digital News
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <form
+          onSubmit={handleSubmit}
           style={{
-            padding: "10px 12px",
-            borderRadius: 8,
+            width: "100%",
+            maxWidth: 380,
+            background: "var(--nova-surface)",
             border: "1px solid var(--nova-border)",
-            fontSize: 14,
-          }}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          style={{
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--nova-border)",
-            fontSize: 14,
-          }}
-        />
-        {error && <div style={{ color: "#c0392b", fontSize: 13 }}>{error}</div>}
-        <button
-          type="submit"
-          disabled={busy}
-          style={{
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: "none",
-            background: "#111",
-            color: "#fff",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: busy ? "not-allowed" : "pointer",
+            borderRadius: 16,
+            padding: 36,
+            boxShadow: "var(--nova-shadow)",
           }}
         >
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+          <div className="nova-serif" style={{ fontWeight: 600, fontSize: 22, lineHeight: 1.2, color: "var(--nova-ink)" }}>
+            Sign in to Nova
+          </div>
+          <div style={{ font: "400 14px/1.5 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginTop: 6, marginBottom: 28 }}>
+            Use your MCN Group employee account.
+          </div>
+
+          <label style={labelStyle}>Email</label>
+          <input
+            type="email"
+            placeholder="andi.wijaya@mcngroup.id"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={inputStyle}
+          />
+
+          <label style={{ ...labelStyle, marginTop: 18 }}>Password</label>
+          <input
+            type="password"
+            placeholder="••••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={inputStyle}
+          />
+
+          {error && (
+            <div style={{ font: "500 13px/1.5 var(--font-figtree),sans-serif", color: "var(--nova-danger)", marginTop: 14 }}>{error}</div>
+          )}
+
+          <button type="submit" disabled={busy} style={primaryBtnStyle}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <div style={{ font: "400 12.5px/1.5 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginTop: 18, textAlign: "center" }}>
+            Trouble signing in? Contact IT Service Desk.
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  font: "600 12.5px/1.4 var(--font-figtree),sans-serif",
+  color: "var(--nova-ink)",
+  marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "11px 13px",
+  borderRadius: 9,
+  border: "1px solid var(--nova-border)",
+  background: "var(--nova-input-bg)",
+  color: "var(--nova-ink)",
+  font: "400 14.5px/1.4 var(--font-figtree),sans-serif",
+  outline: "none",
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  width: "100%",
+  marginTop: 22,
+  padding: 12,
+  borderRadius: 9,
+  border: "none",
+  background: "var(--nova-accent)",
+  color: "#fff",
+  font: "600 14.5px/1.2 var(--font-figtree),sans-serif",
+  cursor: "pointer",
+};

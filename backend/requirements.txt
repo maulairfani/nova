@@ -12,3 +12,6 @@ bcrypt==5.0.0
 pyjwt==2.11.0
 redis==8.0.1
 pydantic-settings==2.14.2
+minio==7.2.20
+qdrant-client==1.18.0
+python-multipart==0.0.20
