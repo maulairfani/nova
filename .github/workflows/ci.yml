@@ -32,6 +32,10 @@ jobs:
       CORE_DATABASE_URL: postgresql://x:x@localhost/x
       CORE_DATABASE_ADMIN_URL: postgresql+psycopg://x:x@localhost/x
       REDIS_URL: redis://localhost:6379/0
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: dummy-for-unit-tests
+      MINIO_SECRET_KEY: dummy-for-unit-tests
+      QDRANT_URL: http://localhost:6333
       OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
       JWT_SECRET_KEY: dummy-for-unit-tests
     steps:

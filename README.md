@@ -34,11 +34,18 @@ running today:
   parsed (Markdown/PDF), chunked, embedded, and searchable within seconds,
   no redeploy or manual re-seed needed.
 
+Cross-business-unit question synthesis (TDD §6.3) works for any identity
+with more than one business-unit claim (e.g. `group_admin`, or a
+membership spanning multiple units) — the agent calls each relevant
+unit's tools within the same turn and synthesizes a combined, cited
+answer; verified live with a real multi-unit identity comparing MCN TV's
+ad revenue against MCN+'s subscription revenue.
+
 **Not yet built** (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
-Section 11 and the TDD's runtime views, Section 6): cross-business-unit
-question synthesis (TDD §6.3); enforcement of `business_unit_roles`'
-`finance`/`admin` tiers by the SQL Analytics Tool (the tier is stored and
-forwarded, ADR-0021, but not yet checked by any MCP server).
+Section 11): enforcement of `business_unit_roles`' `finance`/`admin`
+tiers by the SQL Analytics Tool (the tier is stored and forwarded,
+ADR-0021, but not yet checked by any MCP server — every unit member
+currently gets the same data-query access regardless of tier).
 
 ## Tech stack
 

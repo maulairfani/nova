@@ -468,13 +468,43 @@ file-content changes only until reviewed; the live Qdrant/`documents`
 table still reflect the previous (smaller) KB until someone re-runs the
 seed step.
 
+**Cross-business-unit question synthesis (TDD §6.3) — confirmed already
+working, not actually a gap**: this had been carried in this log as
+"still pending," but the underlying plumbing (multi-unit JWT claims,
+`get_tools_for_identity` connecting to every claimed unit's server,
+business-unit-prefixed tool names avoiding collisions) was already built
+during the auth work — nobody had just asked it a real cross-unit
+question and checked. Logged in as `fajar.nugroho@mcngroup.example`
+(`tv`+`plus` membership) against a live stack and asked "Compare MCN
+TV's total ad revenue to MCN+'s total subscription revenue over the last
+30 days" — the agent called `tv_sql_analytics` and `plus_sql_analytics`
+in parallel within the same turn, generated correct SQL against each
+unit's own dimensional schema, and synthesized a correct comparative
+answer citing both sources' SQL. No code change needed; this was a
+documentation/status correction; the actual **gap** the previous entry
+should have described more precisely is that a live-verified test
+never existed before now.
+
+**Fixed a pre-existing CI bug, unrelated to this session's schema
+work**: `backend/tests/test_auth.py`/`test_cache.py`/`test_mcp_client.py`
+failed to even collect in CI (`pydantic_core.ValidationError` — `Settings`
+requires `minio_endpoint`/`minio_access_key`/`minio_secret_key`/
+`qdrant_url`, added when Manage Documents' `storage.py`/`vectorstore.py`
+were built, but `ci.yml`'s `test-backend` job env block was never updated
+to include them). This had been silently failing CI on `main` since that
+build — confirmed by checking the run history, the commit immediately
+before this session's also failed CI for the same reason. Fixed by adding
+the 4 missing dummy vars to `ci.yml`. Verified for real: ran the exact
+`test-backend` env against a venv locally (config now builds), then the
+full unit suite against the live Docker stack the documented way
+(`docker compose run --rm backend-api ... pytest tests/`) — 17/17 backend
++ 7/7 each for `mcp-tv`/`mcp-plus`/`mcp-news` (38/38) all green.
+
 **Still outstanding**: `business_unit_roles`' `finance` tier and the
 `admin` tier's enforcement in each MCP server's SQL Analytics Tool are
 stored and forwarded but not enforced (ADR-0021's Consequences) - every
 unit member currently gets the same *data-query* access regardless of
 tier (the `admin` tier is now enforced for document management, above -
-a separate authorization surface, not the same gap). Also still pending:
-the cross-business-unit synthesis flow (TDD §6.3, now practical to build
-with real multi-unit identities like `fajar.nugroho@mcngroup.example`);
-the design mock's inline document preview (Markdown/PDF viewer) was
-descoped from the Manage Documents build.
+a separate authorization surface, not the same gap). The design mock's
+inline document preview (Markdown/PDF viewer) was descoped from the
+Manage Documents build.
