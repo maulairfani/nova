@@ -187,6 +187,20 @@ services:
       - postgres-core
       - qdrant
 
+  # One-off dummy-data seed for all 3 business-unit analytics databases
+  # (ADR-0025) — run via `docker compose -f docker-compose.prod.yml run
+  # --rm seed-data python seed_all.py` after a deploy that migrated a
+  # schema change (e.g. ADR-0023's dimensional schema), same manual
+  # first-time-per-change step as local dev. Not started by `up -d`.
+  seed-data:
+    image: ghcr.io/${GHCR_OWNER}/nova-seed-data:${TAG:-latest}
+    environment:
+      POSTGRES_TV_ADMIN_URL: postgresql+psycopg2://${TV_DB_USER}:${TV_DB_PASSWORD}@postgres-tv:5432/mcn_tv
+      POSTGRES_PLUS_ADMIN_URL: postgresql+psycopg2://${PLUS_DB_USER}:${PLUS_DB_PASSWORD}@postgres-plus:5432/mcn_plus
+      POSTGRES_NEWS_ADMIN_URL: postgresql+psycopg2://${NEWS_DB_USER}:${NEWS_DB_PASSWORD}@postgres-news:5432/mcn_news
+    profiles:
+      - tools
+
   caddy:
     image: caddy:2-alpine
     ports:
