@@ -16,9 +16,9 @@ Titles enter the MCN+ catalog through one of three routes:
   released.
 - **Licensed acquisition**: third-party movies/series (streaming) or
   micro-drama titles (Shorts) licensed for a fixed term, typically 12–36
-  months. Requires a signed licensing agreement specifying territory,
-  window length, and simulcast rights (if any content is shared with MCN
-  TV).
+  months. Requires a signed licensing agreement specifying the licensor,
+  territory, window length, license fee, and simulcast rights (if any
+  content is shared with MCN TV).
 - **Co-production**: shared investment with an external studio. Revenue
   share terms are set per agreement; catalog ownership reverts per the
   co-production contract's terms at term end.
@@ -28,9 +28,10 @@ Titles enter the MCN+ catalog through one of three routes:
 1. Content Licensing Manager confirms the acquisition route and
    territory/rights scope for the incoming title.
 2. Metadata team assigns the title's product classification
-   (`streaming` or `shorts`), genre tags, and release date, and enters it
-   into the catalog system at least 5 business days before its intended
-   release date.
+   (`streaming` or `shorts`), genre tags, maturity rating (SU / 13+ / 17+
+   / 21+, per Indonesian KPI content classification), and release date,
+   and enters it into the catalog system at least 5 business days before
+   its intended release date.
 3. For licensed titles, Content Licensing Manager sets a calendar
    reminder 60 days before the license term's expiry to decide on
    renewal, pull-down, or renegotiation.

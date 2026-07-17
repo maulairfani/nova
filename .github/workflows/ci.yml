@@ -184,10 +184,13 @@ jobs:
               sleep 2
             done
           done
-      - name: MCN TV — migrate + seed analytics data (only unit exercised by the integration test)
+      - name: Migrate all 3 business units (seed-data seeds all 3 in one pass, ADR-0025 —
+          only MCN TV's data is actually exercised by the integration test below)
         run: |
           docker compose run --rm mcp-tv alembic upgrade head
-          docker compose run --rm mcp-tv python -m seed.seed_postgres
+          docker compose run --rm mcp-plus alembic upgrade head
+          docker compose run --rm mcp-news alembic upgrade head
+          docker compose run --rm seed-data python seed_all.py
       - name: Set up the conversation-checkpoint tables
         run: docker compose run --rm backend-api python setup_checkpointer.py
       - name: nova_core — migrate identity schema + seed dummy users (ADR-0021)

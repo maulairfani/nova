@@ -11,15 +11,27 @@ original rationale); differences from the template are called out below.
 
 Same as `mcp_servers/tv/` — `server.py`, `auth.py`
 (`check_plus_access(AuthContext) -> bool`), `db.py`, `tools/`,
-`alembic/`, `seed/`.
+`alembic/`, `semantic/schema.yaml`. Dummy analytics data is seeded from
+the root-level `SEED_DATA/` (ADR-0025), not a local `seed/` directory.
 
 ## MCN+-specific notes
 
+- **Dimensional schema (ADR-0023), 15 tables.** `alembic/versions/0002_dimensional_schema.py`
+  replaced the original 3-flat-table schema with `titles`/`seasons`/`episodes`
+  (shared across both products), `subscription_plans`/`subscriptions`/
+  `subscription_transactions` (streaming-only monetization),
+  `coin_packages`/`coin_transactions` (shorts-only monetization),
+  `subscribers`/`devices`/`regions`/`licensors`/`content_licensing_costs`,
+  and a `revenue` daily rollup — see `semantic/schema.yaml` for the full
+  business-meaning writeup the SQL Analytics Tool is grounded against.
 - **Merged schema, `product` column, not two databases.** `titles`,
   `engagement`, and `revenue` all carry a `product` column
   (`'streaming'|'shorts'`) rather than separate tables per product — this
   matches ADR-0014's decision that MCN+ is one data domain with two
-  products, not two domains grouped under one label.
+  products, not two domains grouped under one label. Monetization is
+  still deliberately split into two separate fact tables
+  (`subscription_transactions` vs. `coin_transactions`), since they're
+  genuinely different business models, not two variants of one.
 - **KB docs cover both products.** The 3 seeded SOPs (see
   `mcp_servers/tv/CLAUDE.md` for where seeding actually lives —
   [`documents/kb/plus/`](../../documents/kb/plus/)) span content

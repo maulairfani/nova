@@ -8,13 +8,24 @@ template (see that directory's `CLAUDE.md` for the original rationale).
 
 Same as `mcp_servers/tv/` — `server.py`, `auth.py`
 (`check_news_access(AuthContext) -> bool`), `db.py`, `tools/`,
-`alembic/`, `seed/`.
+`alembic/`, `semantic/schema.yaml`. Dummy analytics data is seeded from
+the root-level `SEED_DATA/` (ADR-0025), not a local `seed/` directory.
 
 ## MCN News-specific notes
 
+- **Dimensional schema (ADR-0023), 8 tables.** `alembic/versions/0002_dimensional_schema.py`
+  replaced the original 3-flat-table schema with `desks`/`authors`/
+  `platforms`/`ad_slot_types` dimensions and `articles`/
+  `article_engagement`/`ad_revenue`/`corrections` facts — engagement and ad
+  revenue are both measured per platform now, not just per article, and
+  `corrections` tracks the correction/retraction lifecycle already
+  described in the knowledge base's SOP. See `semantic/schema.yaml` for
+  the full business-meaning writeup the SQL Analytics Tool is grounded
+  against.
 - Schema covers `articles`, `article_engagement` (page views, unique
-  visitors, time on page), and `ad_revenue` (by ad slot type) — reflecting
-  MCN News's digital-first metrics rather than TV's daypart/rating model.
+  visitors, time on page, per platform), and `ad_revenue` (by ad slot type
+  and platform) — reflecting MCN News's digital-first metrics rather than
+  TV's daypart/rating model.
 - 3 seeded SOPs (see `mcp_servers/tv/CLAUDE.md` for where seeding
   actually lives — [`documents/kb/news/`](../../documents/kb/news/))
   cover the newsroom's editorial lifecycle: fact-checking before

@@ -1,21 +1,18 @@
 """Async, read-only connection to postgres-tv for the SQL Analytics Tool."""
+from pathlib import Path
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from common.semantic_layer import load_semantic_layer
 from config import settings
 
 _engine = create_async_engine(settings.postgres_tv_url, pool_pre_ping=True)
 
-# Hardcoded schema description for the text-to-SQL prompt (phase 1 — only
-# two tables' worth of dummy data, so a hand-written description is simpler
-# and more reliable than introspecting the DB at request time).
-SCHEMA_DESCRIPTION = """
-Tables in the mcn_tv database (all read-only):
-
-programs(id, title, genre, daypart['prime_time'|'day_time'|'late_night'], premiere_date)
-viewership_ratings(id, program_id -> programs.id, air_date, rating numeric, households_reached int, region text)
-ad_revenue(id, program_id -> programs.id, air_date, slot_count int, revenue_idr bigint)
-"""
+# Semantic layer (ADR-0024) for the text-to-SQL prompt — table/column
+# business meaning, glossary, derived metrics, and example queries for
+# mcn_tv's dimensional schema (ADR-0023), not just table signatures.
+SCHEMA_DESCRIPTION = load_semantic_layer(Path(__file__).parent / "semantic" / "schema.yaml")
 
 _FORBIDDEN_KEYWORDS = ("insert", "update", "delete", "drop", "alter", "truncate", "grant", "revoke")
 

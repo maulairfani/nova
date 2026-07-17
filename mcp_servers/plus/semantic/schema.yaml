@@ -1,0 +1,218 @@
+# Semantic layer for mcn_plus (ADR-0024) — read by common/semantic_layer.py
+# and injected into the SQL Analytics Tool's system prompt (tools/sql_analytics.py).
+# Keep this in sync with alembic/versions/0002_dimensional_schema.py by hand;
+# nothing enforces the two stay identical (see ADR-0024's Consequences).
+
+business_unit_name: MCN+
+
+overview: >
+  MCN+ spans two products under one Data Mesh domain (ADR-0014): OTT
+  streaming (movies/series, subscription-based) and Shorts (micro-drama,
+  coin-based unlock). The `product` column ('streaming'|'shorts') appears
+  on every table that differs by product; `titles`/`episodes`/`seasons`
+  are shared structures used by both. Monetization is deliberately split
+  into two separate transaction fact tables (subscription_transactions
+  for streaming, coin_transactions for shorts) since they are genuinely
+  different business models, not two variants of the same one.
+
+tables:
+  regions:
+    description: A geographic market a subscriber belongs to (province/country-level).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      name: {type: text, description: "Region name, e.g. 'Jakarta', 'Jawa Barat'."}
+
+  devices:
+    description: A device type + platform combination a subscriber can watch on.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      device_type: {type: text, enum: "mobile | smart_tv | web | tablet", description: Physical device category.}
+      platform: {type: text, enum: "ios | android | web | tvos | other", description: Software platform.}
+
+  licensors:
+    description: A studio/production house MCN+ licenses content from (for content it doesn't own outright).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      name: {type: text, description: Licensor/studio name.}
+      country: {type: text, description: Licensor's country of origin.}
+
+  subscription_plans:
+    description: A streaming subscription tier. Shorts has no plans — it's monetized via coin_packages instead.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Plan code, e.g. 'BASIC', 'PREMIUM'."}
+      name: {type: text, description: Plan display name.}
+      price_idr: {type: bigint, unit: IDR per billing cycle, description: Monthly subscription price.}
+      max_concurrent_streams: {type: integer, description: Maximum simultaneous streams allowed on this plan.}
+
+  coin_packages:
+    description: A purchasable bundle of coins, used only to unlock Shorts (micro-drama) content — the shorts-only monetization equivalent of a subscription_plan.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Package code, e.g. 'COINS_100'."}
+      coin_amount: {type: integer, unit: coins, description: Number of coins in this package.}
+      price_idr: {type: bigint, unit: IDR, description: Purchase price for this package.}
+
+  titles:
+    description: A piece of content — a streaming movie/series or a shorts micro-drama. Shared structure across both products, distinguished by `product` and `content_type`.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title: {type: text, description: Title name.}
+      product: {type: text, enum: "streaming | shorts", description: Which MCN+ product this title belongs to.}
+      content_type: {type: text, enum: "movie | series | microdrama", description: "Content shape — 'microdrama' only occurs with product='shorts'."}
+      genre: {type: text, description: Content genre.}
+      maturity_rating: {type: text, enum: "SU | 13+ | 17+ | 21+", description: "Indonesian content rating (KPI-style); SU = Semua Umur (all ages)."}
+      licensor_id: {type: integer, fk: licensors.id, description: Which licensor this title is licensed from; null for in-house/owned content.}
+      release_date: {type: date, description: Date this title became available on MCN+.}
+
+  seasons:
+    description: A season of a streaming series. Only exists for product='streaming', content_type='series'; shorts titles have no seasons.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title_id: {type: integer, fk: titles.id, description: The series this season belongs to.}
+      season_number: {type: integer, description: Season number.}
+
+  episodes:
+    description: An individual watchable unit of a title — an episode of a streaming series, or a single microdrama episode. A movie/one-off gets a single episode row.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title_id: {type: integer, fk: titles.id, description: The title this episode belongs to.}
+      season_id: {type: integer, fk: seasons.id, description: The season this episode belongs to; null for movies and for shorts (which have no seasons).}
+      episode_number: {type: integer, description: Episode number within its season (or overall, if no season).}
+      duration_seconds: {type: integer, unit: seconds, description: "Runtime — typically minutes for streaming, under a few minutes for shorts."}
+      release_date: {type: date, description: Date this episode became available.}
+
+  subscribers:
+    description: An MCN+ customer/account. Not an MCN Group employee — this is customer data, unrelated to Nova's own user/auth tables.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      external_subscriber_code: {type: text, description: Opaque subscriber identifier (not a real name/PII — dummy data).}
+      signup_date: {type: date, description: Date this subscriber account was created.}
+      region_id: {type: integer, fk: regions.id, description: Subscriber's region.}
+      primary_device_id: {type: integer, fk: devices.id, description: Subscriber's most-used device; null if unknown.}
+
+  engagement:
+    description: Watch activity for a title (or specific episode) by date, device, and region — the primary fact table for viewership/completion questions.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title_id: {type: integer, fk: titles.id, description: The title watched.}
+      episode_id: {type: integer, fk: episodes.id, description: The specific episode watched; null if aggregated at the title level.}
+      date: {type: date, description: Date of this engagement measurement.}
+      product: {type: text, enum: "streaming | shorts", description: Which product this engagement belongs to (denormalized from titles for query convenience).}
+      device_id: {type: integer, fk: devices.id, description: Device type/platform this engagement was measured on.}
+      region_id: {type: integer, fk: regions.id, description: Region this engagement was measured in.}
+      watch_minutes: {type: integer, unit: minutes, description: Total minutes watched that day.}
+      completion_rate: {type: numeric, unit: "fraction 0-1", description: "Fraction of the content actually completed (e.g. 0.85 = 85% watched through)."}
+      viewers: {type: integer, unit: people, description: Distinct viewer count for that day.}
+
+  subscriptions:
+    description: A subscriber's streaming subscription lifecycle — one row per subscription period, tracking status for churn analysis. Shorts subscribers have no rows here (they use coin_transactions instead).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      subscriber_id: {type: integer, fk: subscribers.id, description: The subscriber.}
+      plan_id: {type: integer, fk: subscription_plans.id, description: The plan subscribed to.}
+      start_date: {type: date, description: Subscription start date.}
+      end_date: {type: date, description: Subscription end date; null while still active.}
+      status: {type: text, enum: "active | paused | churned", description: Current subscription status.}
+      churn_reason: {type: text, description: "Reason for churn (e.g. 'price', 'content', 'competitor'); null unless status='churned'."}
+
+  subscription_transactions:
+    description: A billing event for a streaming subscription — the transactional detail behind revenue's daily subscription_revenue_idr rollup.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      subscriber_id: {type: integer, fk: subscribers.id, description: The subscriber billed.}
+      plan_id: {type: integer, fk: subscription_plans.id, description: The plan billed for.}
+      billing_date: {type: date, description: Date of this billing attempt.}
+      amount_idr: {type: bigint, unit: IDR, description: Amount charged.}
+      status: {type: text, enum: "paid | failed | refunded", description: Outcome of this billing attempt.}
+
+  coin_transactions:
+    description: A coin purchase or spend event — the transactional detail behind revenue's daily coin_revenue_idr rollup. Shorts-only.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      subscriber_id: {type: integer, fk: subscribers.id, description: The subscriber transacting.}
+      coin_package_id: {type: integer, fk: coin_packages.id, description: Which coin package was purchased.}
+      title_id: {type: integer, fk: titles.id, description: The shorts title unlocked with these coins; null for a pure top-up with no immediate spend.}
+      transaction_date: {type: date, description: Date of the transaction.}
+      coins_spent: {type: integer, unit: coins, description: Coins spent to unlock content in this transaction (0 for a pure top-up).}
+      amount_idr: {type: bigint, unit: IDR, description: Real-money amount paid for the coin package purchased.}
+
+  content_licensing_costs:
+    description: The cost side of a licensed title — what MCN+ pays a licensor, over what period. Only exists for titles with a non-null licensor_id.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title_id: {type: integer, fk: titles.id, description: The licensed title.}
+      licensor_id: {type: integer, fk: licensors.id, description: The licensor being paid.}
+      license_fee_idr: {type: bigint, unit: IDR, description: Total license fee for this title over the license period.}
+      license_start_date: {type: date, description: When the license period begins.}
+      license_end_date: {type: date, description: When the license period ends — relevant for renewal-decision questions.}
+
+  revenue:
+    description: Daily revenue rollup per product — an aggregate fact for revenue-trend questions, distinct from subscription_transactions/coin_transactions' per-event detail.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      date: {type: date, description: The date this revenue rollup covers.}
+      product: {type: text, enum: "streaming | shorts", description: Which product this revenue belongs to.}
+      subscription_revenue_idr: {type: bigint, unit: IDR, description: "Subscription revenue that day (0 for product='shorts')."}
+      coin_revenue_idr: {type: bigint, unit: IDR, description: "Coin purchase revenue that day (0 for product='streaming')."}
+      active_subscribers: {type: integer, unit: people, description: Count of active subscribers/users that day for this product.}
+
+glossary:
+  Churn: "A subscriber whose subscription status becomes 'churned' — i.e. they cancelled or lapsed rather than renewing. Churn rate over a period = churned subscriptions / subscriptions active at the start of that period."
+  ARPU (Average Revenue Per User): "Average revenue per active subscriber over a period. For streaming: subscription_revenue_idr / active_subscribers. For shorts: coin_revenue_idr / active_subscribers."
+  Completion rate: "The fraction (0-1) of a title's/episode's runtime a viewer actually watched, not just started — a stronger engagement signal than raw watch_minutes for short-form (shorts) content."
+  Coin unlock: "A shorts-specific mechanic where a subscriber spends coins (purchased via coin_packages) to unlock a specific title/episode — recorded as a coin_transactions row with a non-null title_id and coins_spent > 0."
+  Content licensing: "Titles MCN+ doesn't own outright but pays a licensor (content_licensing_costs) for the right to stream, for a fixed license period — renewal decisions depend on comparing license_end_date against that title's engagement."
+
+metrics:
+  arpu:
+    description: Average revenue per active subscriber for a product over a period.
+    formula: "SUM(revenue.subscription_revenue_idr + revenue.coin_revenue_idr) / NULLIF(AVG(revenue.active_subscribers), 0), filtered by revenue.product"
+  churn_rate_pct:
+    description: Percentage of subscriptions that churned within a period, relative to those active at the period's start.
+    formula: "COUNT(*) FILTER (WHERE subscriptions.status = 'churned' AND subscriptions.end_date BETWEEN <period_start> AND <period_end>) / NULLIF(COUNT(*) FILTER (WHERE subscriptions.start_date <= <period_start> AND (subscriptions.end_date IS NULL OR subscriptions.end_date >= <period_start>)), 0) * 100"
+  average_completion_rate:
+    description: Average completion rate for a title, useful for identifying content that loses viewers early.
+    formula: "AVG(engagement.completion_rate) FILTER (WHERE engagement.title_id = <title>)"
+  licensing_roi_proxy:
+    description: A rough proxy for whether a licensed title's engagement justifies its licensing cost (not a true ROI — no per-title revenue attribution exists in this schema).
+    formula: "SUM(engagement.watch_minutes) FILTER (WHERE engagement.title_id = <title>) / NULLIF(content_licensing_costs.license_fee_idr, 0)"
+
+query_examples:
+  - question: "What's our streaming churn rate this quarter?"
+    sql: >
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'churned' AND end_date >= date_trunc('quarter', CURRENT_DATE)) * 100.0
+          / NULLIF(COUNT(*) FILTER (WHERE start_date < date_trunc('quarter', CURRENT_DATE) AND (end_date IS NULL OR end_date >= date_trunc('quarter', CURRENT_DATE))), 0)
+          AS churn_rate_pct
+      FROM subscriptions;
+  - question: "What is streaming ARPU for the last 30 days?"
+    sql: >
+      SELECT SUM(subscription_revenue_idr)::numeric / NULLIF(AVG(active_subscribers), 0) AS arpu_idr
+      FROM revenue
+      WHERE product = 'streaming'
+        AND date >= (CURRENT_DATE - INTERVAL '30 days');
+  - question: "Which shorts title generated the most coin revenue this month?"
+    sql: >
+      SELECT t.title, SUM(ct.amount_idr) AS total_coin_revenue
+      FROM coin_transactions ct
+      JOIN titles t ON t.id = ct.title_id
+      WHERE t.product = 'shorts'
+        AND ct.transaction_date >= date_trunc('month', CURRENT_DATE)
+      GROUP BY t.title
+      ORDER BY total_coin_revenue DESC
+      LIMIT 1;
+  - question: "Which licensed titles have licenses expiring in the next 30 days?"
+    sql: >
+      SELECT t.title, l.name AS licensor, clc.license_end_date
+      FROM content_licensing_costs clc
+      JOIN titles t ON t.id = clc.title_id
+      JOIN licensors l ON l.id = clc.licensor_id
+      WHERE clc.license_end_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days');
+  - question: "What's the average completion rate for streaming series vs. shorts microdramas?"
+    sql: >
+      SELECT t.content_type, AVG(e.completion_rate) AS avg_completion_rate
+      FROM engagement e
+      JOIN titles t ON t.id = e.title_id
+      WHERE t.content_type IN ('series', 'microdrama')
+      GROUP BY t.content_type;

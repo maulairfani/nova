@@ -10,15 +10,22 @@ mind as "what the template looks like," not just "what MCN TV needs."
 ```
 server.py            FastMCP app: registers tools behind the auth check
 auth.py              MCN TV's own check_tv_access(AuthContext) -> bool
-db.py                Async read-only connection + hardcoded schema description
+db.py                Async read-only connection; SCHEMA_DESCRIPTION loaded from semantic/schema.yaml
 tools/kb_search.py     Embeds query, searches Qdrant collection "mcn_tv"
 tools/sql_analytics.py  Text-to-SQL against postgres-tv, SELECT-only
 alembic/              Schema migrations (ADR-0016) — this server owns them,
                       not infrastructure/, since it's the only service that
-                      ever connects to postgres-tv
-seed/
-  seed_postgres.py     Dummy analytics data (idempotent — no-ops if already seeded)
+                      ever connects to postgres-tv. 0002_dimensional_schema.py
+                      (ADR-0023) replaced the original flat schema with a
+                      Nielsen-style dimensional model.
+semantic/schema.yaml   Semantic layer (ADR-0024) — table/column business
+                      meaning, glossary, derived metrics, example queries;
+                      rendered by mcp_servers/common/semantic_layer.py
 ```
+
+Dummy analytics data is no longer seeded from a `seed/` directory here —
+it moved to the root-level `SEED_DATA/` (ADR-0025), which seeds all 3
+business units' databases together.
 
 ## KB seeding goes through the real ingestion pipeline
 

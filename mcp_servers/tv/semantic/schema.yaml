@@ -1,0 +1,210 @@
+# Semantic layer for mcn_tv (ADR-0024) — read by common/semantic_layer.py
+# and injected into the SQL Analytics Tool's system prompt (tools/sql_analytics.py).
+# Keep this in sync with alembic/versions/0002_dimensional_schema.py by hand;
+# nothing enforces the two stay identical (see ADR-0024's Consequences).
+
+business_unit_name: MCN TV
+
+overview: >
+  MCN TV is MCN Group's free-to-air (FTA) broadcast business unit. Its
+  analytics database follows the Nielsen audience-measurement model: every
+  program airs on a channel as one or more "airings" (a specific
+  date/time broadcast, possibly a rerun), and Nielsen measures each
+  airing's audience per DMA (geographic market) per demographic segment.
+  Ad sales are priced against those ratings (GRP-based rate cards), not
+  sold independently of them.
+
+tables:
+  channels:
+    description: MCN TV's broadcast channels (national or regional coverage).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Short channel code, e.g. 'MCN1'."}
+      name: {type: text, description: Full channel name.}
+      coverage_type: {type: text, enum: "national | regional", description: Whether the channel broadcasts nationally or to a specific region only.}
+
+  programs:
+    description: A show/franchise (e.g. a drama series or a variety show) — not a single broadcast; see `airings` for when it actually aired.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      title: {type: text, description: Program title.}
+      genre: {type: text, description: "Free-text genre, e.g. 'drama', 'variety', 'news'."}
+      format: {type: text, enum: "drama | variety | news | sports | reality | film | children", description: Content format category.}
+      production_type: {type: text, enum: "in_house | acquired", description: Whether MCN TV produced this itself or licensed it.}
+      premiere_date: {type: date, description: Date the program first aired.}
+
+  episodes:
+    description: A specific content unit within a program (its season/episode number). A program with no seasons (e.g. a one-off film) still gets one episode row.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      program_id: {type: integer, fk: programs.id, description: The program this episode belongs to.}
+      season_number: {type: integer, description: Season number (1 if the program has no real seasons).}
+      episode_number: {type: integer, description: Episode number within the season.}
+      title: {type: text, description: Episode-specific title (may repeat the program title for non-episodic content).}
+      duration_minutes: {type: integer, unit: minutes, description: Runtime.}
+
+  dma_regions:
+    description: "Nielsen Designated Market Area (DMA) — a geographic audience-measurement market. Every rating is measured *per DMA*, not nationally by default."
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Short DMA code, e.g. 'JABO'."}
+      name: {type: text, description: "Market name, e.g. 'Jabodetabek'."}
+      universe_estimate_households: {type: integer, unit: households, description: "Nielsen's estimated total TV households in this DMA — the denominator behind rating %/share %."}
+      universe_estimate_persons: {type: integer, unit: persons, description: Estimated total persons in this DMA.}
+
+  demographic_segments:
+    description: "A standard Nielsen audience demographic bucket (e.g. 'Adults 18-49'). Ratings, ad campaigns, and rate cards are all defined per segment, not per individual viewer."
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Short code, e.g. 'ADULTS_18_49'."}
+      label: {type: text, description: "Human-readable label, e.g. 'Adults 18-49'."}
+      min_age: {type: integer, unit: years, description: Lower age bound (inclusive).}
+      max_age: {type: integer, unit: years, description: Upper age bound (inclusive); null means no upper bound (open-ended, e.g. "5+").}
+      gender: {type: text, enum: "all | male | female", description: Gender filter for this segment.}
+
+  advertisers:
+    description: A company that buys ad slots on MCN TV.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      name: {type: text, description: Advertiser/company name.}
+      industry_sector: {type: text, description: "e.g. 'FMCG', 'automotive', 'telco'."}
+
+  ad_campaigns:
+    description: An advertiser's ad-buying campaign — a target audience and GRP goal over a date range, fulfilled by one or more ad_slots.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      advertiser_id: {type: integer, fk: advertisers.id, description: The advertiser running this campaign.}
+      name: {type: text, description: Campaign name.}
+      target_demographic_segment_id: {type: integer, fk: demographic_segments.id, description: The audience segment this campaign is targeting.}
+      start_date: {type: date, description: Campaign start.}
+      end_date: {type: date, description: Campaign end.}
+      target_grp: {type: numeric, unit: GRP, description: The total GRP the advertiser contracted to receive against the target segment over the campaign's date range.}
+
+  rate_cards:
+    description: The price MCN TV charges per GRP, by daypart and target demographic segment — the pricing reference `ad_slots.price_idr` is negotiated against.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      daypart: {type: text, enum: "prime_time | day_time | late_night", description: Which daypart this rate applies to.}
+      demographic_segment_id: {type: integer, fk: demographic_segments.id, description: Which audience segment this rate is priced for.}
+      price_per_grp_idr: {type: bigint, unit: IDR per GRP, description: Price per Gross Rating Point.}
+      effective_start_date: {type: date, description: When this rate card took effect.}
+      effective_end_date: {type: date, description: When this rate card stopped applying; null means still in effect.}
+
+  airings:
+    description: A specific broadcast of an episode on a channel at a date/time — the grain `nielsen_ratings` and `ad_slots` are measured against. The same episode can have multiple airings (e.g. a rerun).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      episode_id: {type: integer, fk: episodes.id, description: The episode that aired.}
+      channel_id: {type: integer, fk: channels.id, description: The channel it aired on.}
+      air_date: {type: date, description: Broadcast date.}
+      air_time: {type: time, description: Broadcast start time.}
+      daypart: {type: text, enum: "prime_time | day_time | late_night", description: Daypart this airing fell into.}
+      is_rerun: {type: boolean, description: True if this is a repeat broadcast of an episode already aired before.}
+
+  nielsen_ratings:
+    description: "A Nielsen audience measurement for one airing, in one DMA, for one demographic segment. This is the core fact table for audience/viewership questions — always joined to dma_regions and demographic_segments to answer 'ratings for X market / X audience'."
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      airing_id: {type: integer, fk: airings.id, description: Which broadcast this measurement is for.}
+      dma_id: {type: integer, fk: dma_regions.id, description: Which market this measurement is for.}
+      demographic_segment_id: {type: integer, fk: demographic_segments.id, description: Which audience segment this measurement is for.}
+      measurement_type: {type: text, enum: "overnight | live_plus_7", description: "'overnight' is same-day live viewing only; 'live_plus_7' adds time-shifted (DVR) viewing within 7 days. live_plus_7 values are always >= the matching overnight value for the same airing/dma/segment."}
+      rating_pct: {type: numeric, unit: percent, description: "Rating % — the percentage of the target segment's universe (in this DMA) watching this airing. Formula: viewers / universe_estimate * 100."}
+      share_pct: {type: numeric, unit: percent, description: "Share % — the percentage of households/persons *currently using television at all* (HUT) who were tuned to this airing. Always >= rating_pct, since HUT <= 100% of the universe."}
+      grp: {type: numeric, unit: GRP, description: "Gross Rating Points delivered by this airing/dma/segment — the currency ad rate cards are priced against. See the GRP metric below."}
+      hut_pct: {type: numeric, unit: percent, description: "Households Using Television % — the percentage of the DMA's TV households watching *any* channel at this time. The baseline share_pct is computed against."}
+      sample_size: {type: integer, description: Number of Nielsen panel households/people this measurement was sampled from.}
+
+  ad_slots:
+    description: An individual ad spot booked within a specific airing — the transactional detail behind ad_revenue's daily aggregates.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      airing_id: {type: integer, fk: airings.id, description: Which broadcast this slot aired in.}
+      advertiser_id: {type: integer, fk: advertisers.id, description: Which advertiser bought this slot.}
+      campaign_id: {type: integer, fk: ad_campaigns.id, description: Which campaign this slot fulfills; null for a one-off buy not tied to a tracked campaign.}
+      slot_position: {type: integer, description: Position of this spot within the airing's ad break (1st, 2nd, ...).}
+      duration_seconds: {type: integer, unit: seconds, description: Spot length.}
+      rate_card_id: {type: integer, fk: rate_cards.id, description: Which rate card this slot's price was negotiated against; null if priced outside a standard rate card.}
+      price_idr: {type: bigint, unit: IDR, description: What the advertiser was actually charged for this slot.}
+
+  ad_revenue:
+    description: Daily ad revenue rollup per channel — an aggregate fact for revenue-trend questions, distinct from ad_slots' per-booking detail.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      channel_id: {type: integer, fk: channels.id, description: Which channel this revenue was earned on.}
+      air_date: {type: date, description: The date this revenue rollup covers.}
+      slot_count: {type: integer, description: Number of ad slots sold that day on this channel.}
+      grp_delivered: {type: numeric, unit: GRP, description: Total GRP delivered across that day's ad slots on this channel.}
+      revenue_idr: {type: bigint, unit: IDR, description: Total ad revenue for that day on this channel.}
+
+glossary:
+  DMA (Designated Market Area): A Nielsen-defined geographic television market. Every rating measurement is scoped to a specific DMA — there is no such thing as a rating without a market.
+  Rating (rating_pct): "The percentage of a target audience's total universe (all TV households/persons of that demographic in that DMA) that was watching, regardless of whether other TVs were on."
+  Share (share_pct): "The percentage of *only the TVs currently in use* (HUT) that were tuned to this airing — always higher than rating_pct for the same measurement, since it excludes households with the TV off."
+  HUT (Households Using Television): The percentage of a DMA's TV households with a television turned on at all, watching anything, at a given time — the denominator behind share_pct.
+  GRP (Gross Rating Points): "Reach x frequency, the standard currency for negotiating and pricing ad campaigns — a single airing's GRP contribution equals its rating_pct for the target segment. A campaign's `target_grp` is the sum of GRPs it needs across all its airings."
+  Overnight vs. Live+7: Two measurement windows for the same airing — 'overnight' counts only same-day live viewing; 'live_plus_7' adds DVR/time-shifted viewing captured within 7 days, and is always the more complete (>=) number.
+  Daypart: "A broadcast time-of-day category (prime_time, day_time, late_night) — ad rate cards and typical audience size both vary heavily by daypart."
+  Prime time: The highest-viewership daypart (evening), commanding the highest rate_cards prices.
+
+metrics:
+  effective_reach_pct:
+    description: "The rating percentage for a target segment across multiple airings, useful for 'how much of Adults 18-49 did this campaign actually reach' style questions."
+    formula: "AVG(nielsen_ratings.rating_pct) FILTER (WHERE nielsen_ratings.demographic_segment_id = <target segment>)"
+  campaign_grp_delivered:
+    description: Total GRP a campaign's ad slots have actually delivered so far, to compare against its target_grp.
+    formula: "SUM(nielsen_ratings.grp) for the nielsen_ratings rows matching the airings of that campaign's ad_slots, joined on ad_slots.airing_id = nielsen_ratings.airing_id AND ad_slots.campaign_id = <campaign>"
+  live_plus_7_lift_pct:
+    description: How much time-shifted (DVR) viewing added on top of live viewing for the same airing/DMA/segment.
+    formula: "(live_plus_7.rating_pct - overnight.rating_pct) / overnight.rating_pct * 100, comparing two nielsen_ratings rows with the same airing_id/dma_id/demographic_segment_id but different measurement_type"
+  ad_revenue_per_grp:
+    description: Effective average revenue earned per GRP delivered, a sanity check against rate_cards.price_per_grp_idr.
+    formula: "SUM(ad_revenue.revenue_idr) / NULLIF(SUM(ad_revenue.grp_delivered), 0)"
+
+query_examples:
+  - question: "What was the average prime time rating for Adults 18-49 in Jabodetabek last month?"
+    sql: >
+      SELECT AVG(nr.rating_pct) AS avg_rating
+      FROM nielsen_ratings nr
+      JOIN airings a ON a.id = nr.airing_id
+      JOIN dma_regions d ON d.id = nr.dma_id
+      JOIN demographic_segments ds ON ds.id = nr.demographic_segment_id
+      WHERE a.daypart = 'prime_time'
+        AND d.code = 'JABO'
+        AND ds.code = 'ADULTS_18_49'
+        AND nr.measurement_type = 'overnight'
+        AND a.air_date >= (CURRENT_DATE - INTERVAL '1 month');
+  - question: "Which program delivered the most GRP for advertiser 'Astra' this year?"
+    sql: >
+      SELECT p.title, SUM(nr.grp) AS total_grp
+      FROM ad_slots s
+      JOIN advertisers adv ON adv.id = s.advertiser_id
+      JOIN airings a ON a.id = s.airing_id
+      JOIN episodes e ON e.id = a.episode_id
+      JOIN programs p ON p.id = e.program_id
+      JOIN nielsen_ratings nr ON nr.airing_id = a.id
+      WHERE adv.name = 'Astra'
+        AND a.air_date >= date_trunc('year', CURRENT_DATE)
+      GROUP BY p.title
+      ORDER BY total_grp DESC
+      LIMIT 1;
+  - question: "How much ad revenue did MCN1 earn per GRP delivered in the last 90 days?"
+    sql: >
+      SELECT SUM(ar.revenue_idr)::numeric / NULLIF(SUM(ar.grp_delivered), 0) AS revenue_per_grp
+      FROM ad_revenue ar
+      JOIN channels c ON c.id = ar.channel_id
+      WHERE c.code = 'MCN1'
+        AND ar.air_date >= (CURRENT_DATE - INTERVAL '90 days');
+  - question: "How much did live+7 (time-shifted) viewing add to ratings for late night programs last quarter?"
+    sql: >
+      SELECT AVG(lp7.rating_pct - ov.rating_pct) AS avg_live_plus_7_lift
+      FROM nielsen_ratings ov
+      JOIN nielsen_ratings lp7
+        ON lp7.airing_id = ov.airing_id
+       AND lp7.dma_id = ov.dma_id
+       AND lp7.demographic_segment_id = ov.demographic_segment_id
+       AND lp7.measurement_type = 'live_plus_7'
+      JOIN airings a ON a.id = ov.airing_id
+      WHERE ov.measurement_type = 'overnight'
+        AND a.daypart = 'late_night'
+        AND a.air_date >= (CURRENT_DATE - INTERVAL '3 months');

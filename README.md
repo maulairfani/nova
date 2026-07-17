@@ -49,8 +49,10 @@ forwarded, ADR-0021, but not yet checked by any MCP server).
 | Agent orchestration | LangChain/LangGraph `create_agent`, ReAct pattern | [ADR-0012](documents/adr/0012-agent-orchestration-framework.md), [ADR-0013](documents/adr/0013-agent-pattern.md) |
 | MCP server framework | FastMCP (one server per business unit + one shared) | [ADR-0008](documents/adr/0008-mcp-server-framework.md) |
 | Web search | Tavily, via the Shared MCP Server | [ADR-0010](documents/adr/0010-web-search-provider.md) |
-| Relational DB | PostgreSQL — one instance per business unit + one shared for conversation state | [ADR-0003](documents/adr/0003-relational-database.md) |
+| Relational DB | PostgreSQL — one instance per business unit + one shared for conversation state; each unit's analytics schema is a dimensional (star) model, e.g. Nielsen-style ratings for MCN TV | [ADR-0003](documents/adr/0003-relational-database.md), [ADR-0023](documents/adr/0023-analytics-dimensional-data-model.md) |
 | DB migrations | Alembic, owned per business-unit MCP server | [ADR-0016](documents/adr/0016-database-migrations-alembic.md) |
+| SQL Analytics Tool grounding | Per-unit semantic layer (YAML data dictionary) injected into the text-to-SQL prompt | [ADR-0024](documents/adr/0024-semantic-layer-for-text-to-sql.md) |
+| Dummy analytics seed data | Consolidated generator at `SEED_DATA/`, one Compose service seeding all 3 units | [ADR-0025](documents/adr/0025-consolidated-seed-data-location.md) |
 | Vector DB | Qdrant — one collection per business unit | [ADR-0004](documents/adr/0004-vector-database.md) |
 | Cache / tool-result cache | Redis | [ADR-0006](documents/adr/0006-cache.md) |
 | LLM + embeddings | OpenAI `gpt-5.4-nano` + `text-embedding-3-small`, both via OpenRouter | [ADR-0009](documents/adr/0009-llm-provider.md), [ADR-0015](documents/adr/0015-llm-embedding-gateway-openrouter.md), [ADR-0018](documents/adr/0018-llm-model-change-gpt-5-4-nano.md) |
@@ -71,13 +73,14 @@ Data Mesh domain, not two ([ADR-0014](documents/adr/0014-mcn-plus-unified-busine
 backend/           FastAPI app — the ReAct agent, chat/auth endpoints, nova_core's Alembic setup
 frontend/          Next.js chat UI (login page + chat window)
 mcp_servers/
-  common/          Shared code (auth shape, embeddings client, Qdrant helper)
-  tv/               MCN TV's MCP server (KB search + SQL analytics tools)
-  plus/             MCN+'s MCP server (streaming + shorts, one merged unit)
-  news/             MCN News's MCP server
+  common/          Shared code (auth shape, embeddings client, Qdrant helper, semantic layer loader)
+  tv/               MCN TV's MCP server (KB search + SQL analytics tools; semantic/schema.yaml)
+  plus/             MCN+'s MCP server (streaming + shorts, one merged unit; semantic/schema.yaml)
+  news/             MCN News's MCP server (semantic/schema.yaml)
   shared/           Web search MCP server (Tavily) — not owned by any unit
 worker/            Document ingestion pipeline (ADR-0022) — MinIO webhook → Celery task →
                    parse/chunk/embed → Qdrant + nova_core's documents table
+SEED_DATA/         Consolidated dummy analytics data generator for all 3 business units (ADR-0025)
 infrastructure/    Cross-cutting deployment config (not per-service migrations — those live in mcp_servers/<unit>/alembic/)
   docker-compose.prod.yml   Production compose — pulls GHCR images, adds Caddy (ADR-0019)
   Caddyfile                 Reverse proxy config — auto TLS for the two production domains
@@ -128,10 +131,10 @@ docker compose run --rm mcp-tv alembic upgrade head
 docker compose run --rm mcp-plus alembic upgrade head
 docker compose run --rm mcp-news alembic upgrade head
 
-# Seed each unit's dummy analytics data
-docker compose run --rm mcp-tv python -m seed.seed_postgres
-docker compose run --rm mcp-plus python -m seed.seed_postgres
-docker compose run --rm mcp-news python -m seed.seed_postgres
+# Seed all 3 units' dummy analytics data (ADR-0025) — a few minutes,
+# generates ~6 months of dimensional data (Nielsen-style TV ratings,
+# subscriptions/coin transactions, article engagement) per unit
+docker compose run --rm seed-data python seed_all.py
 
 # Create LangGraph's conversation-checkpoint tables
 docker compose run --rm backend-api python setup_checkpointer.py

@@ -65,11 +65,13 @@ Caddy's automatic TLS matches this project's "prefer well-known, simple
 patterns" convention (`CLAUDE.md`) at the actual scale being deployed (one
 VM, two domains).
 
-Dummy seed data (`seed_postgres.py`/`seed_qdrant.py`, per ADR-0016 and
-each unit's `CLAUDE.md`) is deliberately **not** run automatically on every
-deploy — it's already idempotent, but re-running it costs real embedding
-API calls for no benefit once a unit has been seeded once; seeding stays a
-manual first-deploy step, same as local `docker compose up`.
+Dummy seed data (originally `seed_postgres.py`/`seed_qdrant.py` per
+ADR-0016 and each unit's `CLAUDE.md`; analytics seeding later
+consolidated into `SEED_DATA/seed_all.py`, ADR-0025) is deliberately
+**not** run automatically on every deploy — it's already idempotent, but
+re-running it costs real embedding API calls for no benefit once a unit
+has been seeded once; seeding stays a manual first-deploy step, same as
+local `docker compose up`.
 
 ## Consequences
 

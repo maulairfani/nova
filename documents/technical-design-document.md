@@ -428,6 +428,19 @@ flowchart TB
 | KB Search Tool | Embeds the query, searches this unit's Qdrant collection, retrieves matching chunks + metadata |
 | SQL Analytics Tool | Translates the question into SQL, executes it read-only against this unit's PostgreSQL instance |
 
+Each business unit's PostgreSQL instance holds a **dimensional (star)
+schema** — dimension tables (e.g. programs, DMAs, demographic segments)
+and fact tables (e.g. Nielsen ratings, engagement) — rather than a flat
+table set, reflecting the "big data ... Single Source of Truth for Data
+Analytics" scope this design answers (ADR-0023). MCN TV's schema follows
+the real-world **Nielsen** audience-measurement model (rating/share/GRP/
+HUT per DMA per demographic segment). To keep the SQL Analytics Tool's
+generated queries grounded in what each table/column actually means —
+not just its name — each unit also owns a **semantic layer**: a YAML data
+dictionary (business descriptions, a glossary, derived-metric formulas,
+example question→SQL pairs) injected into that tool's system prompt
+(ADR-0024).
+
 For MCN+, both tools operate across its two products (streaming, shorts)
 within its single collection/database — the KB Search Tool can filter by
 a `product` payload field, and the SQL Analytics Tool selects the
@@ -718,6 +731,9 @@ This section is the index.
 | [0020](adr/0020-defer-public-tls-to-existing-reverse-proxy.md) | Defer public TLS/reverse proxy to the VM's existing Nginx Proxy Manager | Accepted |
 | [0021](adr/0021-identity-access-data-model.md) | Identity & access data model (`nova_core`): users, business units (incl. virtual "group" unit), unit-scoped permission tiers | Accepted |
 | [0022](adr/0022-document-ingestion-pipeline.md) | Document ingestion pipeline: MinIO webhook + Celery worker (`worker/`) | Accepted |
+| [0023](adr/0023-analytics-dimensional-data-model.md) | Analytics data model: dimensional (star) schema per business unit, Nielsen model for MCN TV | Accepted |
+| [0024](adr/0024-semantic-layer-for-text-to-sql.md) | Semantic layer (YAML data dictionary) grounding each unit's SQL Analytics Tool | Accepted |
+| [0025](adr/0025-consolidated-seed-data-location.md) | Consolidated dummy seed data location: root-level `SEED_DATA/` | Accepted |
 
 ## 10. Quality Requirements
 
@@ -777,6 +793,9 @@ scope, ~2,400 active users, ~120 concurrent at peak, ~12,000 queries/day):
 | **Ingestion pipeline** | The async process that reads source documents, parses/chunks/embeds them, and writes the result to the vector store — keeps the knowledge base aligned with source documents (Section 3.2, 6.5) |
 | **Text-to-SQL** | Translating a natural-language question into a SQL query, used by each business unit's SQL Analytics Tool |
 | **Federated query** | Answering a question that spans multiple data sources by querying each independently and combining the results at the consumption layer, rather than via upfront data consolidation (Section 6.3) |
+| **Dimensional (star) schema** | A data-modeling pattern separating *fact* tables (events/measurements) from *dimension* tables (the reusable context they occurred in) — used for each business unit's analytics database (ADR-0023) |
+| **Semantic layer** | A business-meaning layer (glossary, metric definitions, table/column descriptions) sitting between a raw schema and a query-generating LLM, so it interprets the data correctly instead of guessing from column names alone (ADR-0024) |
+| **Nielsen ratings (Rating/Share/GRP/HUT)** | The broadcast-TV audience-measurement standard MCN TV's schema follows — see ADR-0023 and `mcp_servers/tv/semantic/schema.yaml`'s glossary for the full definitions |
 
 ## 13. References
 

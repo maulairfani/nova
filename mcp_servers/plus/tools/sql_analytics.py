@@ -24,7 +24,8 @@ Rules:
 
 
 async def sql_analytics(question: str) -> dict:
-    """Answer an analytics question about MCN+'s titles/engagement/revenue
+    """Answer an analytics question about MCN+'s titles, engagement,
+    subscriptions/churn, coin transactions, or content licensing costs
     (streaming or shorts) by generating and executing a read-only SQL query."""
     response = _llm.chat.completions.create(
         model=settings.openrouter_llm_model,

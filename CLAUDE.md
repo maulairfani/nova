@@ -367,6 +367,107 @@ cleared a prior `error_message` on a successful retry, so a document
 that failed once and later succeeded still showed a stale error in
 Manage Documents despite `status: ingested`.
 
+**Analytics data model redesigned to a dimensional (star) schema, with a
+semantic layer for the SQL Analytics Tool — complete, not yet verified
+against a live stack**: the original 3-flat-table-per-unit analytics
+schema (from phase 1/2) undersold the test brief's "big data ...
+Single Source of Truth for Data Analytics" framing and gave the SQL
+Analytics Tool nothing to reason about beyond trivial lookups. Replaced
+with a proper dimension/fact model per unit (ADR-0023): `mcn_tv` now
+follows the real-world **Nielsen** audience-measurement model (DMAs,
+demographic segments, rating/share/GRP/HUT, overnight vs. live+7,
+GRP-priced rate cards/ad slots — 12 tables total); `mcn_plus` splits
+subscription (streaming) from coin (shorts) monetization with its own
+subscriber/device/region/licensor dimensions (15 tables); `mcn_news`
+adds desks/authors/platforms and a `corrections` fact table matching the
+correction/retraction SOP already in the knowledge base (8 tables). Each
+unit's `alembic/versions/0002_dimensional_schema.py` drops the old flat
+tables and creates the new set — a new migration, not an edit to `0001`,
+per this project's "new ADR/migration, never silently edit an accepted
+one" discipline.
+
+Alongside the schema, each unit now has a **semantic layer**
+(`mcp_servers/<unit>/semantic/schema.yaml`, ADR-0024): table/column
+business descriptions, enum values, a glossary (DMA, GRP, HUT, ARPU,
+churn, etc.), derived-metric formulas, and example question→SQL pairs —
+rendered by a shared `mcp_servers/common/semantic_layer.py` loader into
+each unit's `db.py` `SCHEMA_DESCRIPTION` (same name `sql_analytics.py`
+already consumed, so no call-site changes needed). This exists
+specifically so the SQL Analytics Tool stops guessing at column meaning
+or join paths on a now much larger schema — the concrete grounding gap
+this pass was meant to close.
+
+Dummy seed data generation moved from three independently-drifting
+`mcp_servers/<unit>/seed/seed_postgres.py` scripts to one consolidated
+location, `SEED_DATA/` (ADR-0025) — `tv_data.py`/`plus_data.py`/
+`news_data.py` generate ~6 months of dimensional data per unit (Nielsen
+ratings sampled across DMA×segment×measurement-type, subscriptions/
+billing/coin transactions, per-platform article engagement), orchestrated
+by `seed_all.py` and run as its own one-off Compose service
+(`docker compose run --rm seed-data python seed_all.py`) with no
+FastMCP/Qdrant/OpenRouter dependencies. The old per-unit `seed/`
+directories were deleted, not left alongside the new location.
+
+**Verified end-to-end against a live stack**: brought up all 3 business-unit
+Postgres instances, ran each unit's `alembic upgrade head` (0001 -> 0002)
+for real, then `docker compose run --rm seed-data python seed_all.py` —
+seeded 24,246 `nielsen_ratings` rows (+ episodes/airings/ad_slots/etc.)
+for `mcn_tv`, 2,876 `engagement` rows (+ subscriptions/coin transactions/
+etc.) for `mcn_plus`, 8,291 `article_engagement` rows (+ corrections/etc.)
+for `mcn_news`, no FK violations or type errors. Re-ran `seed_all.py` a
+second time to confirm the idempotent no-op path. Executed 3 of the
+semantic layer's own `query_examples` (TV's DMA+demographic-segment
+rating join, MCN+'s churn rate, News's corrections-by-author join)
+directly against the seeded data via `psql` — all returned correct,
+non-empty results, confirming the semantic layer's documented join paths
+actually work against the real schema, not just read as plausible.
+
+**`documents/kb/` updated to match the new dimensional schema/semantic
+layer — content only, not yet re-ingested (user wants to review first)**:
+`erd.md` was also stale (still showed the old flat schema) and has been
+redrawn to match ADR-0023's dimensional model exactly. In the KB itself,
+found and fixed one real content/data inconsistency —
+`plus/03-shorts-coin-purchase-and-refund-policy.pdf` advertised coin
+packages of 100/500/1,200/3,000 while `SEED_DATA/plus_data.py`'s
+`COIN_PACKAGES` seeds 50/100/300/650 — and updated the doc to match the
+seeded data (the newer, verified source). Also updated:
+`tv/01-ad-slot-booking-sop.md` (rewritten to describe GRP-based rate
+cards per daypart/demographic segment and multi-channel/DMA targeting,
+replacing the old flat "1.3x if rating > 10%" pricing rule that no longer
+matches `rate_cards`/`ad_campaigns`/`ad_slots`), `tv/03-broadcast-incident-escalation.pdf`
+(now names all 4 channels instead of reading as single-channel),
+`plus/01-content-licensing-and-catalog-sop.md` (added maturity rating
+classification SU/13+/17+/21+ and licensor/license fee to the licensing
+agreement bullet), and `plus/02-subscription-billing-and-churn-handling-sop.pdf`
+(added the 4-category churn reason taxonomy — price/content/competitor/
+no_longer_needed — matching `subscriptions.churn_reason`). Left
+`tv/02-content-standards-and-compliance.pdf` and all 3 `news/` docs
+unchanged — read them and found no inconsistency with the new schema.
+
+Also added **3 brand-new SOPs** (one per unit, `04-*`), covering business
+processes the richer schema now supports but the KB never actually
+documented: `tv/04-nielsen-ratings-measurement-and-reporting-sop.pdf`
+(DMA/demographic-segment measurement coverage, overnight vs. live+7
+reporting cadence, minimum-sample-size data-quality rule, and how ratings
+drive scheduling/renewal decisions), `plus/04-content-performance-review-and-renewal-sop.pdf`
+(turns the Content Licensing SOP's 60-day pre-expiry reminder into an
+actual completion-rate/viewer-trend-driven renew/renegotiate/pull-down
+decision process), and `news/04-digital-ad-sales-and-revenue-reporting-sop.pdf`
+(ad inventory types and platform-specific packaging rules, tying back to
+`ad_slot_types`/`platforms`). `worker/seed_documents.py`'s `_TITLES` map
+(PDF parsing has no title extraction, so this is what Manage Documents
+would show instead of the raw filename) was updated with entries for all
+3 new PDFs plus the 3 regenerated ones.
+
+All PDFs (3 regenerated + 3 new) were built with `fpdf2` (a local one-off
+authoring script, not committed to the repo) to stay real,
+text-extractable PDFs matching the existing ones' style, not scanned
+images. **Deliberately not run through the ingestion pipeline**
+(`worker/seed_documents.py` / MinIO) — per the user's request, these are
+file-content changes only until reviewed; the live Qdrant/`documents`
+table still reflect the previous (smaller) KB until someone re-runs the
+seed step.
+
 **Still outstanding**: `business_unit_roles`' `finance` tier and the
 `admin` tier's enforcement in each MCP server's SQL Analytics Tool are
 stored and forwarded but not enforced (ADR-0021's Consequences) - every

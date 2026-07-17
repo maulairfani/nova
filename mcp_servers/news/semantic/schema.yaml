@@ -1,0 +1,144 @@
+# Semantic layer for mcn_news (ADR-0024) — read by common/semantic_layer.py
+# and injected into the SQL Analytics Tool's system prompt (tools/sql_analytics.py).
+# Keep this in sync with alembic/versions/0002_dimensional_schema.py by hand;
+# nothing enforces the two stay identical (see ADR-0024's Consequences).
+
+business_unit_name: MCN News
+
+overview: >
+  MCN News is MCN Group's digital-first news division. Its analytics
+  reflect a newsroom's actual structure: articles are written by an
+  author on a specific desk (rubrik), published as text/video/live-blog,
+  and distributed across multiple platforms (web, app, social) — engagement
+  and ad revenue are both measured per platform, since a story's reach on
+  Instagram is a different number from its reach on the owned website.
+  `corrections` tracks the editorial correction/retraction lifecycle
+  already described in the knowledge base's SOPs.
+
+tables:
+  desks:
+    description: A newsroom desk/rubrik (editorial section) — e.g. politics, business, sports.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, description: "Short code, e.g. 'politics', 'business', 'sports', 'regional'."}
+      name: {type: text, description: Display name of the desk.}
+
+  authors:
+    description: A journalist/reporter.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      name: {type: text, description: Author's name.}
+      desk_id: {type: integer, fk: desks.id, description: The desk this author primarily writes for.}
+
+  platforms:
+    description: A distribution channel MCN News publishes to.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, enum: "web | mobile_app | facebook | instagram | x | newsletter", description: Platform identifier.}
+      name: {type: text, description: Display name of the platform.}
+
+  ad_slot_types:
+    description: A category of ad inventory sold on MCN News's platforms.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      code: {type: text, enum: "display_banner | native_article | video_preroll | newsletter_sponsorship", description: Ad slot type identifier.}
+      name: {type: text, description: Display name of the ad slot type.}
+
+  articles:
+    description: A published news article/story.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      headline: {type: text, description: Article headline.}
+      desk_id: {type: integer, fk: desks.id, description: Which desk this article belongs to.}
+      author_id: {type: integer, fk: authors.id, description: Who wrote this article.}
+      content_type: {type: text, enum: "text | video | live_blog", description: Format the article was published in.}
+      publish_date: {type: date, description: Original publish date.}
+      is_breaking: {type: boolean, description: True if this was published under the expedited breaking-news SOP rather than the standard editorial review process.}
+
+  article_engagement:
+    description: Reader engagement for an article, measured per platform per day — the primary fact table for readership/reach questions. An article distributed on 3 platforms has up to 3 rows per day.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      article_id: {type: integer, fk: articles.id, description: The article measured.}
+      platform_id: {type: integer, fk: platforms.id, description: Which platform this engagement was measured on.}
+      date: {type: date, description: Date of this measurement.}
+      page_views: {type: integer, description: Total page views that day on that platform.}
+      unique_visitors: {type: integer, description: Distinct visitor count that day on that platform.}
+      avg_time_on_page_seconds: {type: integer, unit: seconds, description: Average time a visitor spent on the article page.}
+      social_shares: {type: integer, description: Number of times the article was shared/reposted that day.}
+
+  ad_revenue:
+    description: Daily ad revenue by ad slot type and platform — impressions and revenue are not tied to a specific article (ad inventory is sold platform-wide, not per-story).
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      date: {type: date, description: The date this revenue rollup covers.}
+      ad_slot_type_id: {type: integer, fk: ad_slot_types.id, description: Which ad slot type this revenue came from.}
+      platform_id: {type: integer, fk: platforms.id, description: Which platform this revenue was earned on.}
+      impressions: {type: bigint, description: Total ad impressions served that day for this slot type/platform.}
+      revenue_idr: {type: bigint, unit: IDR, description: Total ad revenue for that day/slot type/platform.}
+
+  corrections:
+    description: A correction or retraction issued against a published article, per the correction/retraction escalation SOP.
+    columns:
+      id: {type: integer, pk: true, description: Surrogate key.}
+      article_id: {type: integer, fk: articles.id, description: The article being corrected.}
+      correction_date: {type: date, description: Date the correction/retraction was issued.}
+      reason: {type: text, description: Free-text explanation of what was wrong and why it was corrected.}
+      severity: {type: text, enum: "minor | major | retraction", description: "'minor' = typo/small factual fix; 'major' = a significant factual error; 'retraction' = the article was pulled entirely."}
+
+glossary:
+  Breaking news: "An article published under the expedited breaking-news SOP (is_breaking = true) — shorter time-to-publish, subject to a different (post-publication) fact-check timeline than standard editorial review."
+  Desk (rubrik): An editorial section/beat a journalist writes for (e.g. politics, sports) — the newsroom's organizational unit, not a taxonomy applied after the fact.
+  CTR-equivalent reach metric: "This schema has no direct click-through data; `unique_visitors` and `social_shares` are the closest engagement proxies for a story's actual reach."
+  Retraction: "The most severe correction (severity = 'retraction') — the article is withdrawn entirely, distinct from a 'major' correction where the article stays published with a fix."
+
+metrics:
+  engagement_rate_proxy:
+    description: A simple engagement-per-reach proxy for a platform, since there's no true engagement-rate column.
+    formula: "SUM(article_engagement.social_shares)::numeric / NULLIF(SUM(article_engagement.unique_visitors), 0)"
+  revenue_per_impression:
+    description: Effective ad revenue per impression (a rough CPM-style rate), by slot type or platform.
+    formula: "SUM(ad_revenue.revenue_idr)::numeric / NULLIF(SUM(ad_revenue.impressions), 0) * 1000"
+  correction_rate_pct:
+    description: Percentage of a desk's or author's published articles that later received a correction of any severity.
+    formula: "COUNT(DISTINCT corrections.article_id)::numeric / NULLIF(COUNT(DISTINCT articles.id), 0) * 100"
+
+query_examples:
+  - question: "Which desk had the most page views last week, across all platforms?"
+    sql: >
+      SELECT d.name, SUM(ae.page_views) AS total_page_views
+      FROM article_engagement ae
+      JOIN articles a ON a.id = ae.article_id
+      JOIN desks d ON d.id = a.desk_id
+      WHERE ae.date >= (CURRENT_DATE - INTERVAL '7 days')
+      GROUP BY d.name
+      ORDER BY total_page_views DESC
+      LIMIT 1;
+  - question: "What's our revenue per impression for video pre-roll ads on Instagram this month?"
+    sql: >
+      SELECT SUM(ar.revenue_idr)::numeric / NULLIF(SUM(ar.impressions), 0) * 1000 AS revenue_per_1000_impressions
+      FROM ad_revenue ar
+      JOIN ad_slot_types st ON st.id = ar.ad_slot_type_id
+      JOIN platforms p ON p.id = ar.platform_id
+      WHERE st.code = 'video_preroll'
+        AND p.code = 'instagram'
+        AND ar.date >= date_trunc('month', CURRENT_DATE);
+  - question: "Which author has had the most corrections issued against their articles this year?"
+    sql: >
+      SELECT au.name, COUNT(*) AS correction_count
+      FROM corrections c
+      JOIN articles a ON a.id = c.article_id
+      JOIN authors au ON au.id = a.author_id
+      WHERE c.correction_date >= date_trunc('year', CURRENT_DATE)
+      GROUP BY au.name
+      ORDER BY correction_count DESC
+      LIMIT 1;
+  - question: "How many breaking news articles were published on the politics desk this month, and how did they perform on average?"
+    sql: >
+      SELECT COUNT(DISTINCT a.id) AS breaking_article_count, AVG(ae.unique_visitors) AS avg_unique_visitors
+      FROM articles a
+      JOIN desks d ON d.id = a.desk_id
+      LEFT JOIN article_engagement ae ON ae.article_id = a.id
+      WHERE d.code = 'politics'
+        AND a.is_breaking = true
+        AND a.publish_date >= date_trunc('month', CURRENT_DATE);

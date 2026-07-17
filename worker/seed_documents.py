@@ -38,10 +38,13 @@ _FORMATS = {".md": "markdown", ".pdf": "pdf"}
 _TITLES = {
     ("tv", "02-content-standards-and-compliance.pdf"): "Content Standards and Compliance SOP — MCN TV",
     ("tv", "03-broadcast-incident-escalation.pdf"): "Broadcast Incident Escalation SOP — MCN TV",
+    ("tv", "04-nielsen-ratings-measurement-and-reporting-sop.pdf"): "Nielsen Ratings Measurement and Reporting SOP — MCN TV",
     ("plus", "02-subscription-billing-and-churn-handling-sop.pdf"): "Subscription Billing and Churn Handling SOP — MCN+",
     ("plus", "03-shorts-coin-purchase-and-refund-policy.pdf"): "Shorts Coin Purchase and Refund Policy — MCN+",
+    ("plus", "04-content-performance-review-and-renewal-sop.pdf"): "Content Performance Review and Renewal SOP — MCN+",
     ("news", "02-breaking-news-publication-sop.pdf"): "Breaking News Publication SOP — MCN News",
     ("news", "03-correction-retraction-escalation-sop.pdf"): "Correction/Retraction Escalation SOP — MCN News",
+    ("news", "04-digital-ad-sales-and-revenue-reporting-sop.pdf"): "Digital Ad Sales and Revenue Reporting SOP — MCN News",
 }
 
 

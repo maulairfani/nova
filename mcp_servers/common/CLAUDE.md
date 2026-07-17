@@ -17,6 +17,11 @@ Code every Business Unit MCP Server needs identically, per TDD §5.2 ("all
   unit's own Qdrant collection is created lazily, on first ingestion
   (`worker/tasks.py`'s `ensure_collection`), not by anything in this
   directory.
+- `semantic_layer.py` — `load_semantic_layer()`, the shared renderer for
+  each unit's `semantic/schema.yaml` (ADR-0024). Only the YAML ->
+  prompt-text rendering is shared; the content (table/column business
+  descriptions, glossary, metric formulas, example queries) is unit-owned,
+  living in each unit's own `semantic/` directory, not here.
 
 When phase 2 adds `mcp_servers/plus/` and `mcp_servers/news/`, they import
 from here rather than duplicating these three files.
