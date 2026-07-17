@@ -485,20 +485,40 @@ documentation/status correction; the actual **gap** the previous entry
 should have described more precisely is that a live-verified test
 never existed before now.
 
-**Fixed a pre-existing CI bug, unrelated to this session's schema
-work**: `backend/tests/test_auth.py`/`test_cache.py`/`test_mcp_client.py`
-failed to even collect in CI (`pydantic_core.ValidationError` — `Settings`
-requires `minio_endpoint`/`minio_access_key`/`minio_secret_key`/
-`qdrant_url`, added when Manage Documents' `storage.py`/`vectorstore.py`
-were built, but `ci.yml`'s `test-backend` job env block was never updated
-to include them). This had been silently failing CI on `main` since that
-build — confirmed by checking the run history, the commit immediately
-before this session's also failed CI for the same reason. Fixed by adding
-the 4 missing dummy vars to `ci.yml`. Verified for real: ran the exact
-`test-backend` env against a venv locally (config now builds), then the
-full unit suite against the live Docker stack the documented way
-(`docker compose run --rm backend-api ... pytest tests/`) — 17/17 backend
-+ 7/7 each for `mcp-tv`/`mcp-plus`/`mcp-news` (38/38) all green.
+**Fixed two pre-existing CI bugs, unrelated to this session's schema
+work — CI is now fully green on a real GitHub Actions run, not just
+verified locally**:
+
+1. `backend/tests/test_auth.py`/`test_cache.py`/`test_mcp_client.py`
+   failed to even collect in CI (`pydantic_core.ValidationError` —
+   `Settings` requires `minio_endpoint`/`minio_access_key`/
+   `minio_secret_key`/`qdrant_url`, added when Manage Documents'
+   `storage.py`/`vectorstore.py` were built, but `ci.yml`'s
+   `test-backend` job env block was never updated to include them).
+2. Fixing (1) let `integration-test` actually run for the first time in
+   a while (it depends on `test-backend` succeeding) — which
+   immediately exposed a second, previously-unreachable bug: `ci.yml`'s
+   "Write .env for the compose stack" step never set
+   `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`, so MinIO started with blank
+   root credentials and every request failed `S3Error: AccessDenied`.
+
+Both had been silently broken on `main` since whichever build introduced
+each requirement — confirmed by checking run history: the commit
+immediately before this session's already failed CI (bug 1), and bug 2
+was simply never reached before because bug 1 blocked `integration-test`
+from ever running. Fixed both, verified for real rather than assumed:
+bug 1 via the full unit suite against the live Docker stack (17/17
+backend + 7/7 each for `mcp-tv`/`mcp-plus`/`mcp-news`, 38/38 green); bug
+2 narrowly via `bootstrap_buckets.py` alone against real MinIO with the
+same dummy credentials (deliberately not running `seed_documents.py`
+locally — that would ingest the pending-review `documents/kb/` changes
+into local Qdrant, still held back per the user's explicit "don't ingest
+yet" instruction). Pushed both fixes and watched the actual GitHub
+Actions runs: the first push still failed on bug 2 (expected — not yet
+pushed), the second (`5e90832`) came back **fully green** — all unit
+test jobs, all 7 Docker builds, frontend build, and the real end-to-end
+integration test (login → chat → grounded, cited answer) all passed on
+a real runner.
 
 **Still outstanding**: `business_unit_roles`' `finance` tier and the
 `admin` tier's enforcement in each MCP server's SQL Analytics Tool are
