@@ -163,6 +163,8 @@ jobs:
             echo "NEWS_DB_READONLY_PASSWORD=ci_dummy"
             echo "CORE_DB_USER=nova_core"
             echo "CORE_DB_PASSWORD=ci_dummy"
+            echo "MINIO_ACCESS_KEY=ci_dummy_access_key"
+            echo "MINIO_SECRET_KEY=ci_dummy_secret_key"
             echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
             echo "OPENROUTER_LLM_MODEL=openai/gpt-5.4-nano"
             echo "OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small"
