@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getClaims, getToken, logout as clearToken, TokenClaims } from "../lib/auth";
+import { BP_SHELL_MAX } from "../lib/breakpoints";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import {
   Conversation,
   deleteConversation,
@@ -43,6 +45,8 @@ export function ChatWindow() {
   const [claims, setClaims] = useState<TokenClaims | null>(null);
   const [theme, setTheme] = useState<Theme>("light");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const isMobileShell = useMediaQuery(`(max-width: ${BP_SHELL_MAX}px)`);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationsLoading, setConversationsLoading] = useState(true);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -80,6 +84,26 @@ export function ChatWindow() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (!isMobileShell) setMobileSidebarOpen(false);
+  }, [isMobileShell]);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileSidebarOpen]);
 
   const handleLogout = () => {
     clearToken();
@@ -225,52 +249,80 @@ export function ChatWindow() {
   const isGroupAdmin = claims.business_units.some((u) => u.code === "group" && u.role === "admin");
   const documentUnits = isGroupAdmin ? (["tv", "plus", "news"] as const) : accessibleUnits;
   const canManageUnit = (unit: string) => isGroupAdmin || claims.business_units.some((u) => u.code === unit && u.role === "admin");
+  const sidebarHidden = isMobileShell ? !mobileSidebarOpen : sidebarCollapsed;
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden" }}>
-      {!sidebarCollapsed && (
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(true)}
-          conversations={conversations}
-          loading={conversationsLoading}
-          activeConvId={activeConvId}
-          onSelect={selectConversation}
-          onNewChat={newChat}
-          onRename={handleRename}
-          onDelete={handleDelete}
-          displayName={claims.display_name}
-          unitLabel={unitLabel}
-          onOpenSettings={() => setView("settings")}
-          onOpenDocuments={() => setView("documents")}
-          isDocumentsActive={view === "documents"}
-          onLogout={handleLogout}
-        />
-      )}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(true)}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+        hiddenForA11y={sidebarHidden}
+        conversations={conversations}
+        loading={conversationsLoading}
+        activeConvId={activeConvId}
+        onSelect={(id) => {
+          selectConversation(id);
+          setMobileSidebarOpen(false);
+        }}
+        onNewChat={() => {
+          newChat();
+          setMobileSidebarOpen(false);
+        }}
+        onRename={handleRename}
+        onDelete={handleDelete}
+        displayName={claims.display_name}
+        unitLabel={unitLabel}
+        onOpenSettings={() => {
+          setView("settings");
+          setMobileSidebarOpen(false);
+        }}
+        onOpenDocuments={() => {
+          setView("documents");
+          setMobileSidebarOpen(false);
+        }}
+        isDocumentsActive={view === "documents"}
+        onLogout={handleLogout}
+      />
+      {mobileSidebarOpen && <div className="nova-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "var(--nova-bg)" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "var(--nova-bg)" }} inert={mobileSidebarOpen}>
         <header
+          className="nova-header"
           style={{
             height: 58,
             flex: "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "0 20px",
             borderBottom: "1px solid var(--nova-border)",
             background: "var(--nova-bg)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <button
+              onClick={() => setMobileSidebarOpen((v) => !v)}
+              aria-label="Toggle sidebar"
+              aria-expanded={mobileSidebarOpen}
+              className="nova-icon-btn nova-mobile-only"
+              style={iconBtnStyle}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
             {sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(false)} aria-label="Expand sidebar" style={iconBtnStyle}>
+              <button onClick={() => setSidebarCollapsed(false)} aria-label="Expand sidebar" className="nova-icon-btn nova-desktop-only" style={iconBtnStyle}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />
                   <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.4" />
                 </svg>
               </button>
             )}
-            {view === "empty" ? <NovaMark size={18} /> : (
+            {view === "empty" ? (sidebarHidden && <NovaMark size={18} />) : (
               <div
                 style={{
                   font: "600 15px/1.3 var(--font-figtree),sans-serif",
@@ -295,7 +347,7 @@ export function ChatWindow() {
               <div style={{ font: "400 15.5px/1.6 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginBottom: 36 }}>
                 Ask about internal policy, business data, or anything on the web.
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, textAlign: "left" }}>
+              <div className="nova-starter-grid">
                 {STARTER_PROMPTS.map((p) => (
                   <button key={p} onClick={() => handleSend(p)} style={starterCardStyle}>
                     {p}

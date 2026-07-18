@@ -1,7 +1,17 @@
-import { useState, KeyboardEvent } from "react";
+import { useEffect, useRef, useState, KeyboardEvent } from "react";
+
+const MAX_INPUT_HEIGHT = 160;
 
 export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void; disabled: boolean }) {
   const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+  }, [value]);
 
   const submit = () => {
     const trimmed = value.trim();
@@ -34,6 +44,7 @@ export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void
           }}
         >
           <textarea
+            ref={textareaRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -48,19 +59,19 @@ export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void
               background: "transparent",
               color: "var(--nova-ink)",
               font: "400 15px/1.5 var(--font-figtree),sans-serif",
-              maxHeight: 160,
+              maxHeight: MAX_INPUT_HEIGHT,
               minHeight: 24,
               padding: "4px 4px",
+              overflowY: "auto",
             }}
           />
           <button
             onClick={submit}
             disabled={sendDisabled}
             aria-label="Send message"
+            className="nova-send-btn"
             style={{
               flex: "none",
-              width: 34,
-              height: 34,
               borderRadius: 10,
               border: "none",
               background: sendDisabled ? "var(--nova-border)" : "var(--nova-accent)",

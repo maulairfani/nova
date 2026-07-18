@@ -30,24 +30,22 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%", background: "var(--nova-bg)" }}>
+    <div className="nova-login-root" style={{ minHeight: "100vh" }}>
       <div
+        className="nova-login-brand"
         style={{
-          width: "42%",
-          minWidth: 360,
           background: "var(--nova-login-panel-bg)",
           color: "#f7f5f2",
           display: "flex",
           flexDirection: "column",
-          padding: "56px 48px",
         }}
       >
         <div style={{ font: "600 11px/1 var(--font-figtree),sans-serif", letterSpacing: ".16em", color: "rgba(247,245,242,0.7)", textTransform: "uppercase" }}>
           MCN Group
         </div>
         <div
-          className="nova-serif"
-          style={{ fontStyle: "italic", fontWeight: 600, fontSize: 56, lineHeight: 1.05, color: "#f7f5f2", marginTop: 18, display: "flex", alignItems: "center", gap: 12 }}
+          className="nova-serif nova-login-heading"
+          style={{ fontStyle: "italic", fontWeight: 600, lineHeight: 1.05, color: "#f7f5f2", marginTop: 18, display: "flex", alignItems: "center", gap: 12 }}
         >
           <span style={{ width: 14, height: 14, borderRadius: 3, background: "var(--nova-accent)", display: "inline-block", transform: "rotate(8deg)" }} />
           Nova
@@ -55,7 +53,7 @@ export default function LoginPage() {
         <div style={{ font: "400 15px/1.6 var(--font-figtree),sans-serif", color: "rgba(247,245,242,0.7)", marginTop: 14, maxWidth: 320 }}>
           Internal AI assistant for MCN Group — grounded in your business unit&apos;s knowledge base, live data, and the web.
         </div>
-        <div style={{ marginTop: "auto", font: "400 12.5px/1.5 var(--font-figtree),sans-serif", color: "rgba(247,245,242,0.45)" }}>
+        <div className="nova-login-tagline" style={{ font: "400 12.5px/1.5 var(--font-figtree),sans-serif", color: "rgba(247,245,242,0.45)" }}>
           Free-to-Air TV · Streaming &amp; Short-Form · Digital News
         </div>
       </div>

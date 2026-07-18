@@ -103,6 +103,10 @@ body {
   font-family: var(--font-newsreader), Georgia, serif;
 }
 
+.nova-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
 @keyframes nova-blink {
   0%,
   49% {
@@ -141,5 +145,149 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Responsive breakpoints (plain magic numbers — @media conditions
+   can't reference custom properties, so these are documented here
+   rather than defined as reusable CSS tokens; keep in sync by hand
+   with lib/breakpoints.ts):
+     640px  content reflow  — grid/stacking changes for narrow phones
+     899px  app shell       — sidebar drawer vs inline-column switch
+   --------------------------------------------------------------- */
+
+/* Sidebar shell: default = in-flow desktop column. */
+.nova-sidebar {
+  width: 272px;
+  flex: none;
+  overflow: hidden;
+}
+.nova-sidebar--collapsed {
+  width: 0;
+  border-right: none;
+}
+@media (max-width: 899px) {
+  .nova-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(272px, 85vw);
+    border-right: 1px solid var(--nova-border);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  /* Neutralize the desktop "collapsed" rule on mobile — visibility here
+     is governed solely by --mobile-open, not the desktop toggle. */
+  .nova-sidebar--collapsed {
+    width: min(272px, 85vw);
+  }
+  .nova-sidebar--mobile-open {
+    transform: translateX(0);
+  }
+}
+
+.nova-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 26, 23, 0.45);
+  z-index: 35;
+}
+
+/* Desktop-only / mobile-only controls. !important is deliberate and
+   narrow here: these buttons already set `display` inline (iconBtnStyle),
+   and this is a plain binary visibility toggle, not a value we need to
+   reason about resolving alongside other overrides. */
+@media (max-width: 899px) {
+  .nova-desktop-only {
+    display: none !important;
+  }
+}
+@media (min-width: 900px) {
+  .nova-mobile-only {
+    display: none !important;
+  }
+}
+
+.nova-header {
+  padding: 0 20px;
+}
+@media (max-width: 640px) {
+  .nova-header {
+    padding: 0 12px;
+  }
+}
+
+.nova-starter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  text-align: left;
+}
+@media (max-width: 640px) {
+  .nova-starter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nova-login-root {
+  display: flex;
+  width: 100%;
+  background: var(--nova-bg);
+}
+@media (max-width: 640px) {
+  .nova-login-root {
+    flex-direction: column;
+  }
+}
+
+.nova-login-brand {
+  width: 42%;
+  min-width: 360px;
+  padding: 56px 48px;
+}
+@media (max-width: 640px) {
+  .nova-login-brand {
+    width: 100%;
+    min-width: 0;
+    padding: 32px 24px;
+  }
+}
+
+.nova-login-heading {
+  font-size: 56px;
+}
+@media (max-width: 640px) {
+  .nova-login-heading {
+    font-size: 34px;
+  }
+}
+
+.nova-login-tagline {
+  margin-top: auto;
+}
+@media (max-width: 640px) {
+  .nova-login-tagline {
+    display: none;
+  }
+}
+
+.nova-send-btn {
+  width: 34px;
+  height: 34px;
+}
+
+/* Touch-target bump — gated on actual touch input, not viewport width,
+   so the compact desktop-mouse density is untouched. */
+@media (pointer: coarse) {
+  .nova-icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .nova-send-btn {
+    width: 40px;
+    height: 40px;
   }
 }

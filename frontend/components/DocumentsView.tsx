@@ -79,8 +79,8 @@ export function DocumentsView({
       await uploadDocument(token, uploadUnit, uploadFile, uploadTitle);
       setUploadOpen(false);
       if (uploadUnit === activeUnit) refresh();
-    } catch {
-      setUploadError("Upload failed. Only Markdown (.md) and PDF (.pdf) files are supported.");
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed. Please try again.");
     } finally {
       setUploadBusy(false);
     }
@@ -162,68 +162,70 @@ export function DocumentsView({
         )}
 
         {!loading && filtered.length > 0 && (
-          <div>
-            <div style={tableHeadStyle}>
-              <div>Title</div>
-              <div>Format</div>
-              <div>Status</div>
-              <div>Chunks</div>
-              <div>Date</div>
-              <div></div>
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ width: "max-content", minWidth: "100%" }}>
+              <div style={tableHeadStyle}>
+                <div>Title</div>
+                <div>Format</div>
+                <div>Status</div>
+                <div>Chunks</div>
+                <div>Date</div>
+                <div></div>
+              </div>
+              {filtered.map((doc) => {
+                const sp = STATUS_STYLE[doc.status];
+                return (
+                  <div key={doc.id} style={rowStyle}>
+                    <div style={cellTitleStyle}>{doc.title}</div>
+                    <div style={formatBadgeStyle}>{doc.format}</div>
+                    <div>
+                      <span
+                        title={doc.error_message ?? undefined}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "3px 10px",
+                          borderRadius: 999,
+                          background: sp.bg,
+                          color: sp.fg,
+                          font: "600 11.5px/1.4 var(--font-figtree),sans-serif",
+                          cursor: doc.error_message ? "help" : "default",
+                        }}
+                      >
+                        {sp.label}
+                      </span>
+                    </div>
+                    <div style={cellMutedStyle}>{doc.status === "ingested" ? `${doc.chunk_count ?? 0} chunks` : "—"}</div>
+                    <div style={cellMutedStyle}>{new Date(doc.created_at).toLocaleDateString()}</div>
+                    <div>
+                      {canManageUnit(doc.business_unit_code) &&
+                        (confirmDeleteId === doc.id ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onClick={() => handleDelete(doc.id)} style={deleteConfirmBtnStyle}>
+                              Delete
+                            </button>
+                            <button onClick={() => setConfirmDeleteId(null)} style={deleteCancelBtnStyle}>
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteId(doc.id)} aria-label="Delete document" style={deleteBtnStyle}>
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                              <path
+                                d="M3 4.5h10M6.5 4.5V3a1 1 0 011-1h1a1 1 0 011 1v1.5M4.5 4.5l.6 8.4a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8.4"
+                                stroke="currentColor"
+                                strokeWidth="1.3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            {filtered.map((doc) => {
-              const sp = STATUS_STYLE[doc.status];
-              return (
-                <div key={doc.id} style={rowStyle}>
-                  <div style={cellTitleStyle}>{doc.title}</div>
-                  <div style={formatBadgeStyle}>{doc.format}</div>
-                  <div>
-                    <span
-                      title={doc.error_message ?? undefined}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "3px 10px",
-                        borderRadius: 999,
-                        background: sp.bg,
-                        color: sp.fg,
-                        font: "600 11.5px/1.4 var(--font-figtree),sans-serif",
-                        cursor: doc.error_message ? "help" : "default",
-                      }}
-                    >
-                      {sp.label}
-                    </span>
-                  </div>
-                  <div style={cellMutedStyle}>{doc.status === "ingested" ? `${doc.chunk_count ?? 0} chunks` : "—"}</div>
-                  <div style={cellMutedStyle}>{new Date(doc.created_at).toLocaleDateString()}</div>
-                  <div>
-                    {canManageUnit(doc.business_unit_code) &&
-                      (confirmDeleteId === doc.id ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <button onClick={() => handleDelete(doc.id)} style={deleteConfirmBtnStyle}>
-                            Delete
-                          </button>
-                          <button onClick={() => setConfirmDeleteId(null)} style={deleteCancelBtnStyle}>
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setConfirmDeleteId(doc.id)} aria-label="Delete document" style={deleteBtnStyle}>
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <path
-                              d="M3 4.5h10M6.5 4.5V3a1 1 0 011-1h1a1 1 0 011 1v1.5M4.5 4.5l.6 8.4a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8.4"
-                              stroke="currentColor"
-                              strokeWidth="1.3"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </div>
@@ -345,7 +347,16 @@ const deleteConfirmBtnStyle: React.CSSProperties = { border: "none", background:
 const deleteCancelBtnStyle: React.CSSProperties = { border: "1px solid var(--nova-border)", background: "transparent", color: "var(--nova-ink-muted)", font: "600 11px/1.2 var(--font-figtree),sans-serif", padding: "5px 9px", borderRadius: 6, cursor: "pointer" };
 
 const overlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(28,26,23,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modalStyle: React.CSSProperties = { width: 420, background: "var(--nova-surface)", borderRadius: 16, border: "1px solid var(--nova-border)", padding: 28, boxShadow: "0 20px 48px rgba(0,0,0,0.2)" };
+const modalStyle: React.CSSProperties = {
+  width: "min(420px, calc(100vw - 32px))",
+  maxHeight: "calc(100vh - 32px)",
+  overflowY: "auto",
+  background: "var(--nova-surface)",
+  borderRadius: 16,
+  border: "1px solid var(--nova-border)",
+  padding: 28,
+  boxShadow: "0 20px 48px rgba(0,0,0,0.2)",
+};
 const fieldLabelStyle: React.CSSProperties = { display: "block", font: "600 12px/1.4 var(--font-figtree),sans-serif", color: "var(--nova-ink)", marginBottom: 6, marginTop: 16 };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--nova-border)", background: "var(--nova-input-bg)", color: "var(--nova-ink)", font: "400 13.5px/1.4 var(--font-figtree),sans-serif", outline: "none" };
 const secondaryBtnStyle: React.CSSProperties = { padding: "8px 15px", borderRadius: 8, border: "1px solid var(--nova-border)", background: "transparent", color: "var(--nova-ink)", font: "600 13px/1.2 var(--font-figtree),sans-serif", cursor: "pointer" };

@@ -19,6 +19,9 @@ const GROUP_ORDER = ["Today", "Yesterday", "Previous 7 days", "Older"];
 export function Sidebar({
   collapsed,
   onToggleCollapse,
+  mobileOpen,
+  onCloseMobile,
+  hiddenForA11y,
   conversations,
   loading,
   activeConvId,
@@ -35,6 +38,9 @@ export function Sidebar({
 }: {
   collapsed: boolean;
   onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+  hiddenForA11y: boolean;
   conversations: Conversation[];
   loading: boolean;
   activeConvId: string | null;
@@ -70,8 +76,6 @@ export function Sidebar({
     setRenamingId(null);
   };
 
-  if (collapsed) return null;
-
   const initials = displayName
     .split(" ")
     .map((p) => p[0])
@@ -79,10 +83,20 @@ export function Sidebar({
     .join("")
     .toUpperCase();
 
+  const sidebarClassName = [
+    "nova-sidebar",
+    collapsed && "nova-sidebar--collapsed",
+    mobileOpen && "nova-sidebar--mobile-open",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <aside
+      className={sidebarClassName}
+      inert={hiddenForA11y}
+      aria-hidden={hiddenForA11y}
       style={{
-        width: 272,
         flex: "none",
         display: "flex",
         flexDirection: "column",
@@ -93,8 +107,11 @@ export function Sidebar({
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 16px 14px" }}>
         <NovaMark size={19} />
-        <button onClick={onToggleCollapse} aria-label="Collapse sidebar" title="Collapse sidebar" style={iconBtnStyle}>
+        <button onClick={onToggleCollapse} aria-label="Collapse sidebar" title="Collapse sidebar" className="nova-icon-btn nova-desktop-only" style={iconBtnStyle}>
           <CollapseIcon />
+        </button>
+        <button onClick={onCloseMobile} aria-label="Close sidebar" title="Close sidebar" className="nova-icon-btn nova-mobile-only" style={iconBtnStyle}>
+          <CloseIcon />
         </button>
       </div>
 
@@ -234,7 +251,7 @@ export function Sidebar({
               {unitLabel}
             </div>
           </div>
-          <button onClick={() => setAccountMenuOpen((v) => !v)} aria-label="Account menu" style={iconBtnStyle}>
+          <button onClick={() => setAccountMenuOpen((v) => !v)} aria-label="Account menu" className="nova-icon-btn" style={iconBtnStyle}>
             <ChevronUpIcon />
           </button>
           <AccountMenu
@@ -381,6 +398,15 @@ function CollapseIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />
       <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
