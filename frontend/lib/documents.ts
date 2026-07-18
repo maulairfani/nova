@@ -35,7 +35,10 @@ export async function uploadDocument(
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
-  if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+  if (!response.ok) {
+    const detail = await response.json().then((body) => body.detail, () => null);
+    throw new Error(typeof detail === "string" ? detail : `Upload failed (${response.status}). Please try again.`);
+  }
   return response.json();
 }
 

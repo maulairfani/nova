@@ -110,3 +110,18 @@ jobs:
             docker compose -f docker-compose.prod.yml run --rm mcp-plus alembic upgrade head
             docker compose -f docker-compose.prod.yml run --rm mcp-news alembic upgrade head
             docker compose -f docker-compose.prod.yml up -d
+
+            # MinIO needs to be up before its buckets can be created/subscribed.
+            # Idempotent (bootstrap_buckets.py), so safe to re-run on every deploy —
+            # this is what actually creates mcn-tv/mcn-plus/mcn-news and subscribes
+            # each to the ingestion webhook on a fresh volume (first deploy) or a
+            # volume MinIO was ever wiped from. Retried the same way as the
+            # Postgres wait above: `up -d` returns once the container starts, not
+            # once MinIO is actually accepting S3 connections.
+            for i in $(seq 1 15); do
+              if docker compose -f docker-compose.prod.yml run --rm worker python bootstrap_buckets.py; then
+                break
+              fi
+              echo "minio not ready yet, retrying bootstrap_buckets.py... ($i/15)"
+              sleep 2
+            done

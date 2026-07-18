@@ -130,7 +130,8 @@ docker compose up -d --build
 ### 3. One-off setup (first run only, or after wiping volumes)
 
 These are deliberately manual, one-off steps rather than automatic
-container-start behavior.
+container-start behavior. Run them all at once via `./seed.sh`, or
+individually if you only need one:
 
 ```bash
 # Create each business unit's analytics schema + read-only role
