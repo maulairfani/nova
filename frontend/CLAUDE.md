@@ -58,7 +58,8 @@ lib/
   businessUnits.ts               Shared BUSINESS_UNIT_LABELS map (tv/plus/news/group → display name)
   theme.ts                     get/apply the light/dark theme (localStorage, falls back to
                               prefers-color-scheme on first load)
-  renderInlineMarkdown.tsx      Bold/italic/code only — not a full markdown renderer
+  NovaMarkdown.tsx              Chat-bubble markdown via react-markdown + remark-gfm/remark-breaks
+                              (see Markdown rendering, below) — not the old hand-rolled parser
 ```
 
 ## Tool-call steps and Manage Documents
@@ -128,11 +129,40 @@ decoded client-side just to render a read-only badge
   starts a new conversation even though the backend's conversation history
   would still be there under the old thread_id. Not required for this
   phase's acceptance bar (TDD §6.1).
-- **Minimal inline markdown only** (`lib/renderInlineMarkdown.tsx`) — bold,
-  italic, inline code. No lists/headings/links rendering. Added because the
-  LLM's answers use `**bold**` for emphasis and rendering it literally
-  looked unpolished; a full markdown library was judged unnecessary for a
-  single chat bubble's worth of formatting.
+## Markdown rendering
+
+`lib/NovaMarkdown.tsx` renders assistant messages via **react-markdown +
+remark-gfm + remark-breaks**, with a `components` map restyling every
+element (headings, lists, task-list checkboxes, blockquotes, tables, hr,
+links, fenced code blocks with a language label, inline code) to the
+`--nova-*` design tokens instead of using react-markdown's unstyled
+defaults. This replaced an earlier hand-rolled parser
+(`lib/renderInlineMarkdown.tsx`, bold/italic/inline-code/headings/lists
+only) once real usage showed the LLM's answers routinely hit markdown the
+hand-rolled version didn't cover at all — fenced code blocks (the original
+gap), plus tables, blockquotes, strikethrough, task lists, and links once
+a broader QA pass was run against it. Re-implementing each of those by
+hand would just mean re-discovering CommonMark/GFM edge cases one at a
+time; a real parser gets them right in one shot.
+
+- **remark-breaks** turns a single newline into a hard line break (`<br>`)
+  instead of CommonMark's default soft-break-as-space — matches how the
+  LLM actually formats replies (liberal single newlines, not
+  double-newline paragraphs), and matches the old renderer's per-line
+  behavior.
+- **Known CommonMark/GFM quirk, not a bug**: a GFM table cannot interrupt
+  a list item's lazy-continuation paragraph. If a line that reads as an
+  ordered-list marker (e.g. `10) Table ...`) is immediately followed by a
+  pipe table with no blank line in between, the table stays unparsed
+  (swallowed as list-item text) — verified this is spec-correct behavior,
+  matching GitHub's own renderer, not something specific to this
+  implementation. A blank line before the table (or before any block-level
+  element following a line that looks like a list marker) fixes it; this
+  is a markdown-authoring issue in the source text, not something to work
+  around in `NovaMarkdown.tsx`.
+- The `ol` override must forward react-markdown's `start` prop — dropping
+  it silently renumbers every ordered list to start at 1, which is easy to
+  miss since it only shows up for lists that don't already start at 1.
 
 ## Known toolchain issue (fixed, documented so it doesn't recur)
 

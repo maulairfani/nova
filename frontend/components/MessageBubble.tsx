@@ -1,4 +1,4 @@
-import { renderInlineMarkdown } from "../lib/renderInlineMarkdown";
+import { NovaMarkdown } from "../lib/NovaMarkdown";
 import { LiveStepData, LiveSteps, StepData, StepsTrace } from "./ToolSteps";
 
 export interface Message {
@@ -56,8 +56,8 @@ export function MessageBubble({
         )}
 
         {message.content ? (
-          <div style={{ font: "400 15px/1.65 var(--font-figtree),sans-serif", color: "var(--nova-ink)", whiteSpace: "pre-wrap" }}>
-            {renderInlineMarkdown(message.content)}
+          <div className="nova-markdown" style={{ font: "400 15px/1.65 var(--font-figtree),sans-serif", color: "var(--nova-ink)" }}>
+            <NovaMarkdown text={message.content} />
           </div>
         ) : (
           isStreaming &&
