@@ -1,4 +1,5 @@
 import { Theme } from "../lib/theme";
+import { formatCountdown, UsageStatus } from "../lib/usage";
 
 export function SettingsView({
   displayName,
@@ -7,6 +8,9 @@ export function SettingsView({
   theme,
   onToggleTheme,
   onLogout,
+  usage,
+  usageError,
+  remainingSeconds,
 }: {
   displayName: string;
   email: string;
@@ -14,8 +18,12 @@ export function SettingsView({
   theme: Theme;
   onToggleTheme: () => void;
   onLogout: () => void;
+  usage: UsageStatus | null;
+  usageError: boolean;
+  remainingSeconds: number;
 }) {
   const dark = theme === "dark";
+  const atLimit = !!usage && usage.remaining <= 0;
   return (
     <div style={{ flex: 1, overflowY: "auto", display: "flex", justifyContent: "center", padding: "36px 24px" }}>
       <div style={{ maxWidth: 600, width: "100%" }}>
@@ -39,6 +47,43 @@ export function SettingsView({
           <div style={rowStyleLast}>
             <span style={labelStyle}>Business unit access</span>
             <span style={valueStyle}>{unitLabel}</span>
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={sectionTitleStyle}>Chat usage</div>
+          <div style={{ padding: "4px 0 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={labelStyle}>Messages used</span>
+              <span style={valueStyle}>{usage ? `${usage.used} / ${usage.limit}` : "—"}</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: "var(--nova-border)", overflow: "hidden" }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${usage ? Math.min(100, (usage.used / usage.limit) * 100) : 0}%`,
+                  background: atLimit ? "var(--nova-danger)" : "var(--nova-accent)",
+                  transition: "width .3s ease",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                font: "400 12.5px/1.4 var(--font-figtree),sans-serif",
+                color: atLimit ? "var(--nova-danger)" : "var(--nova-ink-muted)",
+              }}
+            >
+              {!usage
+                ? usageError
+                  ? "Unable to load usage right now."
+                  : "Loading…"
+                : atLimit
+                  ? `Limit reached — resets in ${formatCountdown(remainingSeconds)}`
+                  : usage.used === 0
+                    ? `${usage.limit} messages available every 5 hours`
+                    : `${usage.remaining} message${usage.remaining === 1 ? "" : "s"} remaining · resets in ${formatCountdown(remainingSeconds)}`}
+            </div>
           </div>
         </div>
 

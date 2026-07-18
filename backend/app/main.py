@@ -22,6 +22,10 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Custom response headers (ADR-0027's X-RateLimit-*/Retry-After) aren't
+    # visible to browser JS across origins unless explicitly exposed - curl
+    # shows them regardless, so this is easy to miss without a real browser check.
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"],
 )
 
 app.include_router(api_router, prefix="/api/v1")

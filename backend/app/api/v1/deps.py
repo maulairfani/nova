@@ -4,9 +4,11 @@ phase 1's unverified header pass-through (backend/CLAUDE.md)."""
 import uuid
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
+from app.core.rate_limit import increment_and_check
 from app.core.security import decode_access_token
+from app.schemas.usage import UsageOut
 
 
 def _decode_bearer(authorization: str | None) -> dict:
@@ -52,3 +54,38 @@ def get_auth_headers(authorization: str | None = Header(default=None)) -> dict[s
         "x-nova-business-units": ",".join(business_units),
         "x-nova-roles": ",".join(roles),
     }
+
+
+def _format_retry_duration(seconds: int) -> str:
+    hours, remainder = divmod(max(seconds, 0), 3600)
+    minutes = remainder // 60
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    if minutes:
+        return f"{minutes}m"
+    return "a moment"
+
+
+async def check_rate_limit(user_id: uuid.UUID = Depends(get_current_user_id)) -> UsageOut:
+    """Chat-only per-user rate limit (ADR-0027): 50 requests / rolling 5h
+    window, Redis-backed, no exemptions. Raises 429 when exceeded; returns
+    the status otherwise so chat.py can stamp the same headers on success."""
+    status = await increment_and_check(user_id)
+    if status.used > status.limit:
+        retry_after = str(status.reset_seconds)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached the limit of {status.limit} messages per 5-hour window. "
+                f"Try again in {_format_retry_duration(status.reset_seconds)}."
+            ),
+            headers={
+                "Retry-After": retry_after,
+                "X-RateLimit-Limit": str(status.limit),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": retry_after,
+            },
+        )
+    return status

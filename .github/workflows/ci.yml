@@ -71,6 +71,9 @@ jobs:
       QDRANT_URL: http://localhost:6333
       OPENROUTER_API_KEY: sk-or-dummy-for-unit-tests
       TAVILY_API_KEY: tvly-dummy-for-unit-tests
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: x
+      MINIO_SECRET_KEY: x
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
