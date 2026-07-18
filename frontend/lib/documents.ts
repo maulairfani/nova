@@ -49,3 +49,21 @@ export async function deleteDocument(token: string, id: string): Promise<void> {
   });
   if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
 }
+
+/** Resolves a kb citation's (unit, source_document) back to its real
+ * Document row (Sources panel's "View document") - null on 404 (e.g. the
+ * document was since deleted), so the caller can just hide the action
+ * rather than surface an error for something this minor. */
+export async function findDocumentByObjectKey(
+  token: string,
+  businessUnit: string,
+  objectKey: string
+): Promise<DocumentItem | null> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/documents/lookup?business_unit=${encodeURIComponent(businessUnit)}&object_key=${encodeURIComponent(objectKey)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Lookup failed: ${response.status}`);
+  return response.json();
+}

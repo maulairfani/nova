@@ -36,6 +36,14 @@ export interface StoredMessage {
   content: string;
   steps?: { type: "kb" | "data" | "web" | "chart"; label: string }[];
   charts?: { chart_id: string; title: string; chart_type: string }[];
+  citations?: {
+    type: "kb" | "web";
+    title: string;
+    snippet: string;
+    unit?: string;
+    source_document?: string;
+    url?: string;
+  }[];
 }
 
 export function getConversationMessages(token: string, id: string): Promise<StoredMessage[]> {

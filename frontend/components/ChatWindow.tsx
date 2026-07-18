@@ -13,7 +13,7 @@ import {
   renameConversation,
 } from "../lib/conversations";
 import { BUSINESS_UNIT_LABELS } from "../lib/businessUnits";
-import { ChartStep, RateLimitedError, streamChat, UnauthorizedError } from "../lib/streamChat";
+import { ChartStep, Citation, RateLimitedError, streamChat, UnauthorizedError } from "../lib/streamChat";
 import { applyTheme, getStoredTheme, Theme } from "../lib/theme";
 import { formatCountdown, getUsage, UsageStatus } from "../lib/usage";
 import { ChatInput, FeatureKey } from "./ChatInput";
@@ -22,6 +22,7 @@ import { Message, MessageBubble } from "./MessageBubble";
 import { NovaMark } from "./NovaMark";
 import { SettingsView } from "./SettingsView";
 import { Sidebar } from "./Sidebar";
+import { SourcesPanel } from "./SourcesPanel";
 import { LiveStepData } from "./ToolSteps";
 
 function newThreadId(): string {
@@ -58,6 +59,8 @@ export function ChatWindow() {
   const [busy, setBusy] = useState(false);
   const [liveSteps, setLiveSteps] = useState<LiveStepData[]>([]);
   const [liveCharts, setLiveCharts] = useState<ChartStep[]>([]);
+  const [liveCitations, setLiveCitations] = useState<Citation[]>([]);
+  const [sourcesPanel, setSourcesPanel] = useState<{ citations: Citation[]; highlightIndex?: number } | null>(null);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageFetchedAt, setUsageFetchedAt] = useState(0);
   const [usageError, setUsageError] = useState(false);
@@ -65,6 +68,7 @@ export function ChatWindow() {
   const threadIdRef = useRef<string>(newThreadId());
   const liveStepsRef = useRef<LiveStepData[]>([]);
   const liveChartsRef = useRef<ChartStep[]>([]);
+  const liveCitationsRef = useRef<Citation[]>([]);
   const loadedConvIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -270,6 +274,8 @@ export function ChatWindow() {
     setLiveSteps([]);
     liveChartsRef.current = [];
     setLiveCharts([]);
+    liveCitationsRef.current = [];
+    setLiveCitations([]);
 
     try {
       await streamChat({
@@ -296,6 +302,10 @@ export function ChatWindow() {
           liveChartsRef.current = [...liveChartsRef.current, chart];
           setLiveCharts(liveChartsRef.current);
         },
+        onCitations: (citations) => {
+          liveCitationsRef.current = citations;
+          setLiveCitations(citations);
+        },
         onRateLimit: (info) => {
           setUsage({ used: info.limit - info.remaining, limit: info.limit, remaining: info.remaining, reset_seconds: info.resetSeconds });
           setUsageFetchedAt(Date.now());
@@ -303,9 +313,15 @@ export function ChatWindow() {
       });
       const finishedSteps = liveStepsRef.current.map(({ type, label }) => ({ type, label }));
       const finishedCharts = liveChartsRef.current;
+      const finishedCitations = liveCitationsRef.current;
       setMessages((prev) => {
         const next = [...prev];
-        next[next.length - 1] = { ...next[next.length - 1], steps: finishedSteps, charts: finishedCharts };
+        next[next.length - 1] = {
+          ...next[next.length - 1],
+          steps: finishedSteps,
+          charts: finishedCharts,
+          citations: finishedCitations,
+        };
         return next;
       });
     } catch (err) {
@@ -340,6 +356,8 @@ export function ChatWindow() {
       setLiveSteps([]);
       liveChartsRef.current = [];
       setLiveCharts([]);
+      liveCitationsRef.current = [];
+      setLiveCitations([]);
     }
   };
 
@@ -497,6 +515,8 @@ export function ChatWindow() {
                   isStreaming={busy && i === messages.length - 1}
                   liveSteps={busy && i === messages.length - 1 ? liveSteps : undefined}
                   liveCharts={busy && i === messages.length - 1 ? liveCharts : undefined}
+                  liveCitations={busy && i === messages.length - 1 ? liveCitations : undefined}
+                  onOpenSources={(citations, highlightIndex) => setSourcesPanel({ citations, highlightIndex })}
                 />
               ))}
             </div>
@@ -521,6 +541,14 @@ export function ChatWindow() {
 
         {view !== "settings" && view !== "documents" && <ChatInput onSend={handleSend} disabled={busy} blockedReason={blockedReason} />}
       </div>
+
+      {sourcesPanel && (
+        <SourcesPanel
+          citations={sourcesPanel.citations}
+          highlightIndex={sourcesPanel.highlightIndex}
+          onClose={() => setSourcesPanel(null)}
+        />
+      )}
     </div>
   );
 }

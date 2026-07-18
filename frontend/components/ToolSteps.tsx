@@ -10,7 +10,7 @@ export interface LiveStepData extends StepData {
   status: "active" | "done";
 }
 
-function StepIcon({ type }: { type: StepData["type"] }) {
+export function StepIcon({ type }: { type: StepData["type"] }) {
   if (type === "kb") {
     return (
       <svg width="10" height="10" viewBox="0 0 16 16" fill="none">

@@ -1,7 +1,8 @@
-import { CSSProperties, ReactNode } from "react";
+import { CSSProperties, ReactNode, useMemo } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import { Citation } from "./streamChat";
 
 const CODE_BLOCK_PRE_STYLE: CSSProperties = {
   margin: "6px 0 10px",
@@ -85,11 +86,6 @@ const components: Components = {
     </blockquote>
   ),
   hr: () => <hr style={{ margin: "12px 0", border: "none", borderTop: "1px solid var(--nova-border)" }} />,
-  a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--nova-accent)", textDecoration: "underline" }}>
-      {children}
-    </a>
-  ),
   del: ({ children }) => <del style={{ opacity: 0.65 }}>{children}</del>,
   table: ({ children }) => (
     <div style={{ overflowX: "auto", margin: "6px 0 10px" }}>
@@ -126,14 +122,105 @@ const components: Components = {
   code: ({ children }) => <code style={INLINE_CODE_STYLE}>{children}</code>,
 };
 
+const CITATION_BADGE_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 15,
+  height: 15,
+  padding: "0 4px",
+  marginLeft: 1,
+  borderRadius: 999,
+  border: "none",
+  background: "var(--nova-accent-soft)",
+  color: "var(--nova-accent)",
+  font: "600 10px/1 var(--font-figtree),sans-serif",
+  cursor: "pointer",
+  verticalAlign: "super",
+};
+
+const PLAIN_LINK_STYLE: CSSProperties = { color: "var(--nova-accent)", textDecoration: "underline" };
+
+// A same-page anchor fragment, not a custom URL scheme: react-markdown's
+// default urlTransform strips any href scheme outside http/https/mailto/tel
+// (XSS hardening) - a fragment link passes through untouched, so this
+// sidesteps that entirely rather than fighting it with a custom
+// urlTransform prop.
+const CITATION_HREF_PREFIX = "#nova-citation-";
+// Matches the SYSTEM_PROMPT's instructed marker (backend/app/agent/prompts.py)
+// - a source's exact title wrapped in full-width brackets, e.g.
+// 【Ad Slot Booking SOP — MCN TV】. Chosen over plain [1]/[[1]] because the
+// model copies a title it already sees verbatim in tool results, rather
+// than tracking an abstract number it's never shown - far more reliable
+// for a small model, and full-width brackets essentially never appear in
+// ordinary prose, so there's no realistic collision with real content.
+const CITATION_MARKER_RE = /【([^】]+)】/g;
+
+/** Rewrites 【Title】 markers into markdown links (`[n](#nova-citation-i)`)
+ * the `a` override below renders as clickable numbered badges - numbers
+ * assigned by first appearance in the text, not by retrieval order, so
+ * they always match what the reader actually sees top-to-bottom. A marker
+ * whose title doesn't match any known citation is dropped silently
+ * (better than a broken-looking badge) - can happen if the model
+ * paraphrases a title instead of copying it exactly. */
+function preprocessCitationMarkers(text: string, citations: Citation[]): string {
+  if (citations.length === 0) return text;
+  const numberByIndex = new Map<number, number>();
+  let nextNumber = 1;
+  return text.replace(CITATION_MARKER_RE, (_match, rawTitle: string) => {
+    const needle = rawTitle.trim().toLowerCase();
+    const idx = citations.findIndex((c) => c.title.trim().toLowerCase() === needle);
+    if (idx === -1) return "";
+    if (!numberByIndex.has(idx)) numberByIndex.set(idx, nextNumber++);
+    return `[${numberByIndex.get(idx)}](${CITATION_HREF_PREFIX}${idx})`;
+  });
+}
+
 /** Chat-bubble markdown: CommonMark + GFM (tables, strikethrough, task
  * lists, autolinks) via react-markdown/remark-gfm, plus remark-breaks so a
  * single newline (how the LLM's replies are formatted) still renders as a
- * visual line break instead of CommonMark's default soft-break-as-space. */
-export function NovaMarkdown({ text }: { text: string }) {
+ * visual line break instead of CommonMark's default soft-break-as-space.
+ *
+ * `citations`/`onCiteClick` are optional - only assistant messages that
+ * actually retrieved sources pass them, wiring 【Title】 markers to
+ * clickable badges that open the Sources panel (SourcesPanel.tsx). */
+export function NovaMarkdown({
+  text,
+  citations = [],
+  onCiteClick,
+}: {
+  text: string;
+  citations?: Citation[];
+  onCiteClick?: (citation: Citation) => void;
+}) {
+  const processedText = useMemo(() => preprocessCitationMarkers(text, citations), [text, citations]);
+
+  const linkAwareComponents = useMemo<Components>(
+    () => ({
+      ...components,
+      a: ({ children, href }) => {
+        if (href?.startsWith(CITATION_HREF_PREFIX)) {
+          const citation = citations[Number(href.slice(CITATION_HREF_PREFIX.length))];
+          if (!citation) return null;
+          return (
+            <button type="button" onClick={() => onCiteClick?.(citation)} style={CITATION_BADGE_STYLE} title={citation.title}>
+              {children}
+            </button>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" style={PLAIN_LINK_STYLE}>
+            {children}
+          </a>
+        );
+      },
+    }),
+    [citations, onCiteClick]
+  );
+
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
-      {text}
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={linkAwareComponents}>
+      {processedText}
     </ReactMarkdown>
   );
 }

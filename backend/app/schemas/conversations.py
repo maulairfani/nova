@@ -24,8 +24,18 @@ class ChartOut(BaseModel):
     chart_type: str
 
 
+class CitationOut(BaseModel):
+    type: str
+    title: str
+    snippet: str
+    unit: str | None = None
+    source_document: str | None = None
+    url: str | None = None
+
+
 class MessageOut(BaseModel):
     role: str
     content: str
     steps: list[StepOut] = []
     charts: list[ChartOut] = []
+    citations: list[CitationOut] = []

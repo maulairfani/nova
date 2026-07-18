@@ -15,7 +15,7 @@ if config.config_file_name is not None:
 # ADR-0016).
 config.set_main_option("sqlalchemy.url", settings.core_database_admin_url)
 
-# app/models.py is the ORM source of truth - migrations are generated from
+# app/models/ is the ORM source of truth - migrations are generated from
 # it (alembic revision --autogenerate), not hand-written independently.
 target_metadata = Base.metadata
 

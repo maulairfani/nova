@@ -3,32 +3,18 @@ Chart Generation Tool (mcp_servers/shared/tools/generate_chart.py) back to
 the frontend. Any authenticated caller may fetch any chart_id (an
 unguessable UUID) - charts aren't business-unit-owned data like KB
 documents, mirroring mcp-shared's own permissive philosophy (ADR-0026's
-Consequences)."""
+Consequences). Thin HTTP adapter - see app/services/chart_service.py."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from minio.error import S3Error
 
 from app.api.v1.deps import get_current_user_id
-from app.core.storage import CHARTS_BUCKET, get_minio_client
+from app.services import chart_service
 
 router = APIRouter()
 
 
 @router.get("/charts/{chart_id}")
 async def get_chart(chart_id: uuid.UUID, user_id: uuid.UUID = Depends(get_current_user_id)):
-    minio = get_minio_client()
-    try:
-        response = minio.get_object(CHARTS_BUCKET, f"{chart_id}.png")
-    except S3Error:
-        raise HTTPException(status_code=404, detail="Chart not found.")
-
-    def stream():
-        try:
-            yield from response.stream(32 * 1024)
-        finally:
-            response.close()
-            response.release_conn()
-
-    return StreamingResponse(stream(), media_type="image/png")
+    return StreamingResponse(chart_service.get_chart_stream(chart_id), media_type="image/png")

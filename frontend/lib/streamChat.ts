@@ -12,6 +12,18 @@ export interface ChartStep {
   chart_type: string;
 }
 
+/** A single Sources-panel card. `unit`/`source_document` are set for
+ * type "kb", `url` for type "web" - see backend/app/agent/tool_labels.py's
+ * parse_citations for the exact shape this mirrors. */
+export interface Citation {
+  type: "kb" | "web";
+  title: string;
+  snippet: string;
+  unit?: string;
+  source_document?: string;
+  url?: string;
+}
+
 export interface StreamChatOptions {
   threadId: string;
   message: string;
@@ -21,6 +33,7 @@ export interface StreamChatOptions {
   onToolStart?: (step: ToolStep) => void;
   onToolEnd?: (id: string) => void;
   onChart?: (chart: ChartStep) => void;
+  onCitations?: (citations: Citation[]) => void;
   onRateLimit?: (info: RateLimitInfo) => void;
   signal?: AbortSignal;
 }
@@ -65,6 +78,7 @@ export async function streamChat({
   onToolStart,
   onToolEnd,
   onChart,
+  onCitations,
   onRateLimit,
   signal,
 }: StreamChatOptions): Promise<void> {
@@ -122,6 +136,8 @@ export async function streamChat({
         onToolEnd?.(payload.id);
       } else if (eventType === "chart") {
         onChart?.(payload as ChartStep);
+      } else if (eventType === "citations") {
+        onCitations?.(payload as Citation[]);
       }
     }
   }

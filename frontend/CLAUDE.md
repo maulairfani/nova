@@ -40,8 +40,17 @@ components/
   MessageBubble.tsx            Renders one message (markdown via NovaMarkdown), a typing-dots
                               indicator while the last assistant message is still
                               empty/streaming, a tool-call steps trace (live while streaming,
-                              collapsible once finished) via ToolSteps.tsx, and any chart
-                              images (ChartImage.tsx) the agent generated that turn
+                              collapsible once finished) via ToolSteps.tsx, any chart
+                              images (ChartImage.tsx) the agent generated that turn, and a
+                              "N sources" pill (opens SourcesPanel) when the turn retrieved
+                              any kb_search/web_search citations — see Sources panel, below
+  SourcesPanel.tsx              Slide-in panel (same fixed-overlay convention as the mobile
+                              sidebar drawer) listing every citation card for a message —
+                              opened via the "N sources" pill or an inline 【Title】 badge
+                              (NovaMarkdown), the latter scrolling to/highlighting that
+                              specific card; a kb card's "View document" opens the real
+                              source in DocumentPreviewModal (via lib/documents.ts's
+                              findDocumentByObjectKey)
   ChartImage.tsx                 Fetches a chart image (useBlobUrl) and renders it with a
                               Download link, reusing the already-fetched blob URL
   ToolSteps.tsx                 LiveSteps (open, per-step active/done icon, shown while
@@ -55,11 +64,14 @@ lib/
                               actually verifies the signature, api/v1/deps.py)
   streamChat.ts                POST + manual SSE parsing, sends the JWT as `Authorization: Bearer`;
                               parses the token-delta `data:` frames and the `tool_start`/
-                              `tool_end`/`chart` SSE event types (matched by run_id, chart by
-                              its own chart_id) into onToolStart/onToolEnd/onChart
+                              `tool_end`/`chart`/`citations` SSE event types (matched by
+                              run_id, chart by its own chart_id, citations by replacing the
+                              whole running list each event) into onToolStart/onToolEnd/
+                              onChart/onCitations
   conversations.ts             REST client for backend/app/api/v1/endpoints/conversations.py —
                               list/rename/delete + read a thread's stored message history
-                              (each assistant message may carry `steps` and `charts` arrays)
+                              (each assistant message may carry `steps`, `charts`, and
+                              `citations` arrays)
   documents.ts                  REST client for backend/app/api/v1/endpoints/documents.py —
                               list/upload (multipart)/delete
   authenticatedFetch.ts          Shared fetch wrapper for endpoints needing the caller's JWT —
@@ -134,13 +146,61 @@ the metadata row and the checkpointer's thread via `adelete_thread`.
 for a brand new chat, same mechanism as before — it's just no longer
 discarded on reload once a message has been sent under it.
 
-**Deliberately not built**: the design mock's citation chips and stat-grid
-cards on assistant messages, and Settings' "clear all history" button.
-The backend's chat SSE stream only emits token deltas and a bare `done`
-event (no structured citation/stats metadata — that would need a new SSE
-event type off `on_tool_end`, not just a frontend change), and "clear all"
-was explicitly descoped during scoping for this pass. Wiring either up is
-future work, not a bug.
+**Deliberately not built**: the design mock's stat-grid cards on assistant
+messages, and Settings' "clear all history" button — both explicitly
+descoped during scoping for this pass, not a bug. (Citation chips *are*
+now built — see Sources panel + inline citations, below.)
+
+## Sources panel + inline citations (2026-07-18)
+
+Every `kb_search`/`web_search` result the agent retrieves becomes a
+citation card, shown two ways: a **"N sources" pill** under a finished
+message (`MessageBubble.tsx`), and **inline numbered badges** wherever
+the LLM actually cited a source in its answer text. Both open the same
+`SourcesPanel.tsx`; clicking an inline badge additionally scrolls to and
+highlights that specific card.
+
+- **`lib/NovaMarkdown.tsx`**: the backend's SYSTEM_PROMPT instructs the
+  model to mark a cited fact with the source's exact title wrapped in
+  full-width brackets, e.g. `【Ad Slot Booking SOP — MCN TV】`
+  (`CITATION_MARKER_RE`) - `preprocessCitationMarkers` rewrites each match
+  into a markdown link (`[n](#nova-citation-i)`) before handing the text
+  to `ReactMarkdown`, numbering by first appearance in the text (not
+  retrieval order) so numbers always match what the reader sees
+  top-to-bottom. The `a` component override renders that synthetic href
+  as a clickable numbered badge instead of a real link.
+  - **Real gotcha hit here**: the href was originally a custom scheme
+    (`nova-citation:i`) - react-markdown's default `urlTransform` silently
+    strips any href scheme outside `http`/`https`/`mailto`/`tel` (XSS
+    hardening), so the link rendered with `href=""` and the citation
+    logic never fired. Fixed by using a same-page anchor fragment
+    (`#nova-citation-i`) instead, which passes through untouched -
+    verified by inspecting the actual rendered DOM
+    (`.innerHTML`) in a live headless-browser pass, not assumed from
+    reading react-markdown's docs.
+  - A marker whose title doesn't match any known citation (the model
+    paraphrased instead of copying exactly) is dropped silently rather
+    than rendered as a broken badge.
+- **`ChatWindow.tsx`**: `liveCitations` ref+state pair mirrors
+  `liveCharts` exactly - `streamChat`'s `onCitations` callback replaces
+  the whole array each `event: citations` frame (the backend already
+  dedupes/numbers it), attached to the finished message as
+  `message.citations` once the turn completes, same lifecycle as
+  `steps`/`charts` including surviving a page reload
+  (`getConversationMessages` returns `citations` per historical message
+  too - verified via a real reload of a live conversation, badges and
+  numbering came back identical).
+- **`SourcesPanel.tsx`**: one card per citation (icon by type, title,
+  business-unit tag for `kb`, a real "Open source ↗" link for `web`),
+  `highlightIndex` scrolls to and highlights the specific card an inline
+  badge referenced. A `kb` card also gets a **"View document"** action -
+  resolves the citation's `(unit, source_document)` to a real
+  `documents` row via a new `GET /api/v1/documents/lookup` call
+  (`lib/documents.ts`'s `findDocumentByObjectKey`, 404 → "Document no
+  longer available" shown inline instead of an error) and opens the
+  result in the same `DocumentPreviewModal` Manage Documents already
+  uses, stacked over the panel - not a raw MinIO URL, since MinIO isn't
+  public and this reuses the app's own auth instead of bypassing it.
 
 ## Auth (ADR-0021)
 
