@@ -18,7 +18,14 @@ class StepOut(BaseModel):
     label: str
 
 
+class ChartOut(BaseModel):
+    chart_id: str
+    title: str
+    chart_type: str
+
+
 class MessageOut(BaseModel):
     role: str
     content: str
     steps: list[StepOut] = []
+    charts: list[ChartOut] = []

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { BUSINESS_UNIT_LABELS } from "../lib/businessUnits";
 import { DocumentItem, deleteDocument, listDocuments, uploadDocument } from "../lib/documents";
 import { getToken } from "../lib/auth";
+import { overlayStyle, uploadModalStyle } from "../lib/modalStyles";
+import { DocumentPreviewModal } from "./DocumentPreviewModal";
 
 const STATUS_STYLE: Record<DocumentItem["status"], { label: string; bg: string; fg: string }> = {
   pending: { label: "Pending", bg: "var(--nova-accent-soft)", fg: "var(--nova-accent)" },
@@ -21,6 +23,7 @@ export function DocumentsView({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -163,7 +166,7 @@ export function DocumentsView({
 
         {!loading && filtered.length > 0 && (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ width: "max-content", minWidth: "100%" }}>
+            <div style={{ minWidth: DOC_TABLE_MIN_WIDTH, width: "100%" }}>
               <div style={tableHeadStyle}>
                 <div>Title</div>
                 <div>Format</div>
@@ -176,7 +179,9 @@ export function DocumentsView({
                 const sp = STATUS_STYLE[doc.status];
                 return (
                   <div key={doc.id} style={rowStyle}>
-                    <div style={cellTitleStyle}>{doc.title}</div>
+                    <button onClick={() => setPreviewDoc(doc)} style={cellTitleBtnStyle} title={doc.title}>
+                      {doc.title}
+                    </button>
                     <div style={formatBadgeStyle}>{doc.format}</div>
                     <div>
                       <span
@@ -232,7 +237,7 @@ export function DocumentsView({
 
       {uploadOpen && (
         <div style={overlayStyle} onClick={() => setUploadOpen(false)}>
-          <form style={modalStyle} onSubmit={submitUpload} onClick={(e) => e.stopPropagation()}>
+          <form style={uploadModalStyle} onSubmit={submitUpload} onClick={(e) => e.stopPropagation()}>
             <div className="nova-serif" style={{ fontSize: 18, fontWeight: 600, color: "var(--nova-ink)", marginBottom: 18 }}>
               Upload document
             </div>
@@ -283,6 +288,15 @@ export function DocumentsView({
           </form>
         </div>
       )}
+
+      {previewDoc && (
+        <DocumentPreviewModal
+          documentId={previewDoc.id}
+          title={previewDoc.title}
+          format={previewDoc.format}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
     </div>
   );
 }
@@ -301,9 +315,22 @@ const uploadBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// The last column fits the row actions - a plain trash icon at rest, or
+// the wider Delete+cancel button pair once confirmDeleteId is set. Sized
+// to the wider state so confirming a delete never overflows into the
+// unwanted horizontal scrollbar the outer overflowX:auto wrapper would
+// otherwise show.
+const DOC_TABLE_COLUMNS = "minmax(220px,1fr) 76px 96px 76px 92px 110px";
+// Sum of the fixed-width columns + gaps/padding + a reasonable floor for
+// the title column - lets the grid's 1fr title track actually flex (and
+// its ellipsis truncation engage) on any viewport wide enough for this,
+// only falling back to the outer overflowX:auto scroll on genuinely
+// narrow ones instead of always growing to the longest title's full width.
+const DOC_TABLE_MIN_WIDTH = 760;
+
 const tableHeadStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px,1fr) 76px 96px 76px 92px 32px",
+  gridTemplateColumns: DOC_TABLE_COLUMNS,
   gap: 12,
   padding: "0 14px 10px",
   borderBottom: "1px solid var(--nova-border)",
@@ -315,19 +342,25 @@ const tableHeadStyle: React.CSSProperties = {
 
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px,1fr) 76px 96px 76px 92px 32px",
+  gridTemplateColumns: DOC_TABLE_COLUMNS,
   gap: 12,
   alignItems: "center",
   padding: "13px 14px",
   borderBottom: "1px solid var(--nova-border)",
 };
 
-const cellTitleStyle: React.CSSProperties = {
+const cellTitleBtnStyle: React.CSSProperties = {
   font: "500 14px/1.4 var(--font-figtree),sans-serif",
   color: "var(--nova-ink)",
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  textAlign: "left",
+  cursor: "pointer",
+  textDecoration: "none",
 };
 
 const cellMutedStyle: React.CSSProperties = { font: "400 13px/1.4 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)" };
@@ -346,17 +379,6 @@ const deleteBtnStyle: React.CSSProperties = { border: "none", background: "trans
 const deleteConfirmBtnStyle: React.CSSProperties = { border: "none", background: "var(--nova-danger)", color: "#fff", font: "600 11px/1.2 var(--font-figtree),sans-serif", padding: "5px 9px", borderRadius: 6, cursor: "pointer" };
 const deleteCancelBtnStyle: React.CSSProperties = { border: "1px solid var(--nova-border)", background: "transparent", color: "var(--nova-ink-muted)", font: "600 11px/1.2 var(--font-figtree),sans-serif", padding: "5px 9px", borderRadius: 6, cursor: "pointer" };
 
-const overlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(28,26,23,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modalStyle: React.CSSProperties = {
-  width: "min(420px, calc(100vw - 32px))",
-  maxHeight: "calc(100vh - 32px)",
-  overflowY: "auto",
-  background: "var(--nova-surface)",
-  borderRadius: 16,
-  border: "1px solid var(--nova-border)",
-  padding: 28,
-  boxShadow: "0 20px 48px rgba(0,0,0,0.2)",
-};
 const fieldLabelStyle: React.CSSProperties = { display: "block", font: "600 12px/1.4 var(--font-figtree),sans-serif", color: "var(--nova-ink)", marginBottom: 6, marginTop: 16 };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--nova-border)", background: "var(--nova-input-bg)", color: "var(--nova-ink)", font: "400 13.5px/1.4 var(--font-figtree),sans-serif", outline: "none" };
 const secondaryBtnStyle: React.CSSProperties = { padding: "8px 15px", borderRadius: 8, border: "1px solid var(--nova-border)", background: "transparent", color: "var(--nova-ink)", font: "600 13px/1.2 var(--font-figtree),sans-serif", cursor: "pointer" };

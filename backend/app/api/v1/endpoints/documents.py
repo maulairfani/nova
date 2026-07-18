@@ -13,6 +13,8 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import select
 
@@ -27,6 +29,7 @@ router = APIRouter()
 
 _REAL_UNITS = ["tv", "plus", "news"]
 _FORMAT_BY_EXTENSION = {".md": "markdown", ".markdown": "markdown", ".pdf": "pdf"}
+_CONTENT_TYPE_BY_FORMAT = {"markdown": "text/markdown; charset=utf-8", "pdf": "application/pdf"}
 
 
 def _business_unit_roles(claims: dict) -> dict[str, str]:
@@ -77,6 +80,33 @@ async def list_documents(business_unit: str, claims: dict = Depends(get_current_
             )
         ).scalars().all()
         return rows
+
+
+@router.get("/documents/{document_id}/content")
+async def get_document_content(document_id: uuid.UUID, claims: dict = Depends(get_current_claims)):
+    async with async_session() as session:
+        document = await session.get(Document, document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        _require_view(document.business_unit_code, claims)
+        object_key = document.object_key
+        business_unit = document.business_unit_code
+        content_type = _CONTENT_TYPE_BY_FORMAT[document.format]
+
+    minio = get_minio_client()
+    try:
+        response = minio.get_object(BUCKETS[business_unit], object_key)
+    except S3Error:
+        raise HTTPException(status_code=404, detail="Document content not found in storage.")
+
+    def stream():
+        try:
+            yield from response.stream(32 * 1024)
+        finally:
+            response.close()
+            response.release_conn()
+
+    return StreamingResponse(stream(), media_type=content_type)
 
 
 @router.post("/documents", response_model=DocumentOut, status_code=201)

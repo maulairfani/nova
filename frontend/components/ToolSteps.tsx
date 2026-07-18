@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 export interface StepData {
-  type: "kb" | "data" | "web";
+  type: "kb" | "data" | "web" | "chart";
   label: string;
 }
 
@@ -28,10 +28,18 @@ function StepIcon({ type }: { type: StepData["type"] }) {
       </svg>
     );
   }
+  if (type === "web") {
+    return (
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M2 8h12M8 2c1.8 1.8 2.8 4 2.8 6s-1 4.2-2.8 6c-1.8-1.8-2.8-4-2.8-6s1-4.2 2.8-6z" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    );
+  }
   return (
     <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M2 8h12M8 2c1.8 1.8 2.8 4 2.8 6s-1 4.2-2.8 6c-1.8-1.8-2.8-4-2.8-6s1-4.2 2.8-6z" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M3 13.5V9M8 13.5V5M13 13.5V7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 13.5h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   );
 }

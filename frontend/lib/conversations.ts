@@ -34,7 +34,8 @@ export function deleteConversation(token: string, id: string): Promise<void> {
 export interface StoredMessage {
   role: "user" | "assistant";
   content: string;
-  steps?: { type: "kb" | "data" | "web"; label: string }[];
+  steps?: { type: "kb" | "data" | "web" | "chart"; label: string }[];
+  charts?: { chart_id: string; title: string; chart_type: string }[];
 }
 
 export function getConversationMessages(token: string, id: string): Promise<StoredMessage[]> {

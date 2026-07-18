@@ -8,6 +8,10 @@ from app.core.config import settings
 
 BUCKETS = {"tv": "mcn-tv", "plus": "mcn-plus", "news": "mcn-news"}
 
+# Chart Generation Tool's output bucket (ADR-0026) - written by mcp-shared,
+# read here for the Chart Endpoint (charts.py).
+CHARTS_BUCKET = "nova-charts"
+
 
 def get_minio_client() -> Minio:
     return Minio(

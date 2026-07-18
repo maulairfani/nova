@@ -5,10 +5,10 @@ own conversations."""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sqlalchemy import delete, select
 
-from app.agent.tool_labels import map_tool_step
+from app.agent.tool_labels import map_tool_step, parse_chart_result
 from app.api.v1.deps import get_current_user_id
 from app.core.db import async_session
 from app.models import Conversation
@@ -84,10 +84,19 @@ async def get_conversation_messages(
     raw_messages = checkpoint_tuple.checkpoint["channel_values"].get("messages", [])
     messages = []
     pending_steps: list[dict[str, str]] = []
+    pending_charts: list[dict[str, str]] = []
     for m in raw_messages:
         if isinstance(m, HumanMessage) and m.content:
             messages.append(MessageOut(role="user", content=m.content))
             pending_steps = []
+            pending_charts = []
+        elif isinstance(m, ToolMessage):
+            # The tool CALL (AIMessage.tool_calls, below) only has the
+            # request, not the result - a chart's id only exists in the
+            # matching ToolMessage's own content.
+            chart = parse_chart_result(m.name, m.content)
+            if chart is not None:
+                pending_charts.append(chart)
         elif isinstance(m, AIMessage):
             if m.tool_calls:
                 # An AIMessage with tool_calls and no content is the agent
@@ -95,6 +104,9 @@ async def get_conversation_messages(
                 # until the turn's actual final (content-bearing) AIMessage.
                 pending_steps.extend(map_tool_step(tc["name"]) for tc in m.tool_calls)
             elif m.content:
-                messages.append(MessageOut(role="assistant", content=m.content, steps=pending_steps))
+                messages.append(
+                    MessageOut(role="assistant", content=m.content, steps=pending_steps, charts=pending_charts)
+                )
                 pending_steps = []
+                pending_charts = []
     return messages

@@ -119,6 +119,13 @@ services:
     image: ghcr.io/${GHCR_OWNER}/nova-mcp-shared:${TAG:-latest}
     environment:
       TAVILY_API_KEY: ${TAVILY_API_KEY}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_SECURE: "false"
+      MPLCONFIGDIR: /tmp/matplotlib
+    depends_on:
+      - minio
 
   postgres-core:
     image: postgres:16

@@ -11,6 +11,10 @@ from minio_client import ensure_bucket, get_client
 
 _BUCKETS = ["mcn-tv", "mcn-plus", "mcn-news"]
 
+# Chart Generation Tool's output bucket (ADR-0026) - not a KB document
+# source, so it's created but never subscribed to the ingestion webhook.
+_CHARTS_BUCKET = "nova-charts"
+
 
 def bootstrap() -> None:
     client = get_client()
@@ -29,6 +33,9 @@ def bootstrap() -> None:
             ),
         )
         print(f"{bucket}: bucket ready, subscribed to INGEST webhook")
+
+    ensure_bucket(client, _CHARTS_BUCKET)
+    print(f"{_CHARTS_BUCKET}: bucket ready (not subscribed to ingestion - not a KB source)")
 
 
 if __name__ == "__main__":
