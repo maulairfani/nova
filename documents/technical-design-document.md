@@ -306,12 +306,12 @@ flowchart TB
             BUDb["<b>PostgreSQL</b><br/><i>this unit's analytics data</i>"]
         end
 
-        SharedMcp["<b>Shared MCP Server</b><br/><i>FastMCP</i><br/>Web search tool"]
+        SharedMcp["<b>Shared MCP Server</b><br/><i>FastMCP</i><br/>Web search + chart<br/>generation tools"]
         Redis["<b>Redis</b><br/><i>Cache / Broker</i>"]
         AsyncWorker["<b>Async Worker</b><br/><i>Python worker</i><br/>Document ingestion pipeline,<br/>shared across all business units"]
         KBDB["<b>PostgreSQL</b><br/><i>nova_core</i><br/>Conversation state<br/>(shared, not domain-owned)"]
         Qdrant["<b>Qdrant</b><br/><i>Vector store</i><br/>one collection per business unit"]
-        ObjectStorage["<b>Object Storage</b><br/><i>MinIO</i><br/>one bucket per business unit"]
+        ObjectStorage["<b>Object Storage</b><br/><i>MinIO</i><br/>one bucket per business unit,<br/>plus one for generated charts"]
     end
 
     LLM["<b>AI/LLM Service</b><br/><i>External System</i>"]
@@ -447,9 +447,11 @@ a `product` payload field, and the SQL Analytics Tool selects the
 appropriate product's tables, since the two products' schemas differ
 (ADR-0014).
 
-The Shared MCP Server follows the same shape, but with a single **Web
-Search Tool** in place of the KB/SQL tools, and simpler authorization
-(available to any authenticated employee, since web search isn't
+The Shared MCP Server follows the same shape, but with a **Web
+Search Tool** and a **Chart Generation Tool** (ADR-0026, renders a
+matplotlib chart image from data the agent already has, stores it in
+object storage) in place of the KB/SQL tools, and simpler authorization
+(available to any authenticated employee, since neither is
 domain-sensitive).
 
 ## 6. Runtime View
@@ -571,6 +573,44 @@ bucket-notification webhook (not polling or a manual trigger), received by
 a small FastAPI producer that enqueues the Celery task the Async Worker
 picks up — see ADR-0022 for why, and `worker/CLAUDE.md` for the exact
 process split.
+
+### 6.6 Chart generation
+
+```mermaid
+sequenceDiagram
+    participant E as Employee
+    participant F as Frontend
+    participant B as Backend API (Agent)
+    participant M as Business Unit MCP Server
+    participant S as Shared MCP Server
+    participant O as Object Storage (nova-charts bucket)
+    participant L as AI/LLM Service
+
+    E->>F: Asks an analytics question, expects a chart
+    F->>B: Sends message (streaming)
+    B->>L: Reason: need data, then a chart
+    L-->>B: Call SQL Analytics Tool
+    B->>M: SQL Analytics Tool(question)
+    M-->>B: Rows
+    B->>L: Rows available - visualize?
+    L-->>B: Call Chart Generation Tool(title, type, labels, series)
+    B->>S: Chart Generation Tool(...)
+    S->>S: Render PNG (matplotlib)
+    S->>O: Write chart image
+    S-->>B: chart_id
+    B-->>F: Stream answer + chart event (chart_id)
+    F->>B: Fetch chart image (authenticated)
+    B->>O: Read chart image
+    O-->>B: PNG bytes
+    B-->>F: PNG bytes
+    F-->>E: Displays answer with chart inline, downloadable
+```
+
+Unlike 6.1-6.4, the chart itself never becomes text the LLM has to relay —
+the agent only ever sees and passes along a `chart_id`; the frontend
+fetches the actual image bytes directly from the Backend API once told
+one exists (ADR-0026). This keeps the same SSE stream (ADR-0017) as every
+other flow, adding one new event type rather than a second channel.
 
 ## 7. Deployment View
 
@@ -734,6 +774,7 @@ This section is the index.
 | [0023](adr/0023-analytics-dimensional-data-model.md) | Analytics data model: dimensional (star) schema per business unit, Nielsen model for MCN TV | Accepted |
 | [0024](adr/0024-semantic-layer-for-text-to-sql.md) | Semantic layer (YAML data dictionary) grounding each unit's SQL Analytics Tool | Accepted |
 | [0025](adr/0025-consolidated-seed-data-location.md) | Consolidated dummy seed data location: root-level `SEED_DATA/` | Accepted |
+| [0026](adr/0026-chart-generation-tool.md) | Chart Generation Tool: matplotlib, server-side, on the Shared MCP Server | Accepted |
 
 ## 10. Quality Requirements
 

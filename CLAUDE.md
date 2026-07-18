@@ -574,3 +574,115 @@ by rebuilding `backend-api` and re-running the exact same failing query
 via the API — it now calls `tv_kb_search` + `plus_kb_search` +
 `news_kb_search` in the same turn and correctly finds and describes the
 document.
+
+**Per-user chat rate limit — complete and verified end-to-end
+(ADR-0027)**: guards against API abuse/uncontrolled LLM spend with a
+hard cap of **30 requests per user per rolling 5-hour window**, uniform
+across every user, scoped to `POST /api/v1/chat` only (other endpoints
+aren't cost-bearing). Implemented as a Redis fixed-window counter
+(`app/core/rate_limit.py`, `INCR` + `EXPIRE ... NX` — atomic, self-heals
+a key that ever ended up without a TTL), wired in as a FastAPI dependency
+(`check_rate_limit`, `api/v1/deps.py`) that raises a plain
+`HTTPException(429)` with `Retry-After`/`X-RateLimit-*` headers, matching
+this codebase's existing no-custom-exception-classes convention. A new
+read-only `GET /api/v1/usage` endpoint (deliberately not itself
+rate-limited) backs the frontend's transparency requirement: `SettingsView`
+gained a "Chat usage" section (progress bar + "resets in Xh Ym" countdown,
+ticked client-side without repolling every second), and `ChatWindow` tracks
+usage state from both this endpoint and the `X-RateLimit-*` headers every
+successful chat response already carries — updating with zero extra
+requests. The composer (`ChatInput`) proactively disables itself once the
+client knows the user is at the limit; a stale/racing client still gets a
+graceful reactive 429 (parsed by a new `RateLimitedError` in
+`lib/streamChat.ts`, mirroring the existing `UnauthorizedError` precedent)
+that immediately self-heals the client's usage state. One real
+cross-origin gotcha caught before it shipped: custom response headers
+aren't visible to browser `fetch()` across origins unless explicitly
+listed via CORS `expose_headers` — `curl` shows them regardless, so this
+would have silently broken the frontend's header-based usage tracking
+without a real browser check. Verified via the full backend unit suite
+(6 new tests in `test_rate_limit.py`, including a 60-concurrent-request
+atomicity check, 23/23 total, no regressions), a live-stack curl pass
+(50-then-30-request drives against a real seeded account confirming
+`X-RateLimit-*` headers, the 429 body, and Redis's raw counter/TTL), and
+a real browser pass confirming the Settings progress bar, the disabled
+composer, and (per user feedback during that pass) removing a duplicate
+placeholder-text version of the same blocked message so it only shows
+once, below the composer.
+
+**Production KB was empty; re-seeded through the live API rather than
+SSH/scp**: the same TDD document investigation above surfaced a second,
+separate gap - Manage Documents on production showed "No documents yet"
+for every unit, because `release.yml`'s deploy job never runs
+`worker/seed_documents.py` (only `seed-data`'s `seed_all.py` is called out
+as a manual post-deploy step in `docker-compose.prod.yml`'s own comment;
+the KB seed isn't mentioned anywhere for prod at all). Rather than
+scp-ing `documents/kb/` to the VM and running the worker's seed script
+there, used the already-deployed Manage Documents upload API
+(`POST /api/v1/documents`) directly - it writes through the exact same
+real ingestion pipeline (MinIO webhook -> Celery -> parse/embed/upsert) a
+human upload would. Hit one real snag: `curl` on this Windows machine
+sends an em-dash in a `-F` field as a single CP1252 byte instead of UTF-8,
+which the API correctly rejected as invalid and silently dropped from the
+title - a client-side encoding quirk, not a Nova bug; fixed by deleting
+and re-uploading the 12 seed documents with a plain hyphen instead. All
+12 confirmed `ingested` with correct chunk counts, and a live chat query
+against production confirmed `tv_kb_search` retrieval actually works
+against the freshly-seeded content.
+
+**Chart generation tool + document preview + a CSS bug fix — all three
+built, tested, and verified end-to-end (ADR-0026)**: user asked for (1) a
+way for the agent to visualize data, explicitly directing matplotlib +
+MinIO + a new tool (not a frontend charting library) rather than leaving
+the approach open, (2) the ability to view a document's actual content
+from Manage Documents (closing the "deliberately not built" gap noted
+when that screen first shipped, now unblocked since `NovaMarkdown`
+exists), and (3) a horizontal-scrollbar bug on Manage Documents' delete
+button. Planned via EnterPlanMode (2 Explore + 1 Plan agent first) before
+writing any code, given the real design decisions involved (where the new
+tool lives, how a static image reaches an authenticated frontend, how it
+survives a page reload).
+
+Built: `generate_chart` on `mcp-shared` (same placement reasoning as
+`web_search` - not owned by any business unit), rendering via matplotlib
+(`Agg` backend, fixed colorblind-validated categorical palette) into a new
+`nova-charts` MinIO bucket (created by `bootstrap_buckets.py`, not
+webhook-subscribed); a new Chart Endpoint
+(`GET /api/v1/charts/{chart_id}`) streaming it back; a new `chart` SSE
+event threaded through both `chat.py`'s live stream and
+`conversations.py`'s history reconstruction (which had no `ToolMessage`
+branch at all before this - only `HumanMessage`/`AIMessage`); a
+`useBlobUrl` hook (authenticated fetch -> Blob -> object URL, since
+`<img src>` can't carry a JWT and MinIO isn't public) shared by the new
+`ChartImage` component and the document-preview modal's PDF branch; and a
+new `GET /documents/{id}/content` endpoint (gated on `_require_view`, not
+`_require_manage`, so any unit member can preview) for the latter.
+
+One real bug surfaced and fixed before it ever reached the frontend:
+assumed `ToolMessage.content` for an MCP tool call would be a flat JSON
+dict string - verified directly against a live tool call first (per this
+project's standing discipline) and found it's actually
+`[content_blocks, {"structured_content": {...}}]`, langchain-mcp-adapters'
+`(content, artifact)` tuple JSON-serialized. `parse_chart_result`
+(`tool_labels.py`) was written against the real shape, not the assumed
+one. Also caught proactively (this project's own CI history repeating
+itself almost verbatim): adding required `minio_*` fields to
+`mcp-shared`'s `Settings` without updating `ci.yml`'s `test-mcp-servers`
+env block would have broken CI collection exactly like backend's
+`storage.py`/`vectorstore.py` addition once did - fixed before it ever
+ran, not after.
+
+Verified end-to-end against the live stack: `generate_chart` unit-tested
+(10/10 passing, mocked MinIO); a real chat question ("show MCN TV's
+rating trend... as a chart") produced a real matplotlib line chart,
+displayed live, downloadable, and identical after a page reload; document
+preview confirmed for both Markdown (rendered content matches source) and
+PDF (fetched blob independently verified as a real, correctly-sized PDF
+by magic bytes - a headless-Chromium screenshot alone couldn't confirm
+the visual PDF render, a known headless-only limitation, not a product
+bug); the delete-button scrollbar fix confirmed at a realistic desktop
+width (`scrollWidth`/`scrollLeft` provably unchanged by clicking delete,
+before vs. after) after an initial narrow-viewport test falsely suggested
+otherwise (a pre-existing, unrelated long-title sizing characteristic of
+the table's `width:"max-content"` layout, present regardless of delete
+state - not touched, out of scope).

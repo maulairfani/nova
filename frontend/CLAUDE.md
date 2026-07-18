@@ -33,11 +33,17 @@ components/
   DocumentsView.tsx             Manage Documents screen: per-unit tabs (only shown if the
                               caller has more than one accessible unit), search, upload
                               (admin-only, per `canManageUnit`), status pills, inline delete
-                              confirm — talks to backend/app/api/v1/endpoints/documents.py
-  MessageBubble.tsx            Renders one message (minimal inline markdown), a typing-dots
+                              confirm, and a preview trigger (click a row's title) — talks to
+                              backend/app/api/v1/endpoints/documents.py
+  DocumentPreviewModal.tsx      Renders a previewed document's content — Markdown via
+                              NovaMarkdown, PDF via an <iframe> over a blob URL (useBlobUrl)
+  MessageBubble.tsx            Renders one message (markdown via NovaMarkdown), a typing-dots
                               indicator while the last assistant message is still
-                              empty/streaming, and a tool-call steps trace (live while
-                              streaming, collapsible once finished) via ToolSteps.tsx
+                              empty/streaming, a tool-call steps trace (live while streaming,
+                              collapsible once finished) via ToolSteps.tsx, and any chart
+                              images (ChartImage.tsx) the agent generated that turn
+  ChartImage.tsx                 Fetches a chart image (useBlobUrl) and renders it with a
+                              Download link, reusing the already-fetched blob URL
   ToolSteps.tsx                 LiveSteps (open, per-step active/done icon, shown while
                               streaming) and StepsTrace (collapsed-by-default count that
                               expands, shown on a finished message or one reloaded from history)
@@ -48,13 +54,21 @@ lib/
                               claims client-side for display only (the backend is what
                               actually verifies the signature, api/v1/deps.py)
   streamChat.ts                POST + manual SSE parsing, sends the JWT as `Authorization: Bearer`;
-                              parses both the token-delta `data:` frames and the `tool_start`/
-                              `tool_end` SSE event types (matched by run_id) into onToolStart/onToolEnd
+                              parses the token-delta `data:` frames and the `tool_start`/
+                              `tool_end`/`chart` SSE event types (matched by run_id, chart by
+                              its own chart_id) into onToolStart/onToolEnd/onChart
   conversations.ts             REST client for backend/app/api/v1/endpoints/conversations.py —
                               list/rename/delete + read a thread's stored message history
-                              (each assistant message may carry a `steps` array)
+                              (each assistant message may carry `steps` and `charts` arrays)
   documents.ts                  REST client for backend/app/api/v1/endpoints/documents.py —
                               list/upload (multipart)/delete
+  authenticatedFetch.ts          Shared fetch wrapper for endpoints needing the caller's JWT —
+                              `${BACKEND_URL}` + Authorization header + throw-on-non-OK
+  useBlobUrl.ts                  Hook: fetches an authenticated endpoint as a Blob, exposes an
+                              object URL for <img>/<iframe> (which can't carry auth headers
+                              themselves) — shared by ChartImage.tsx and the PDF preview branch
+  modalStyles.ts                 The app's one modal convention (dim overlay + centered card),
+                              extracted out of DocumentsView.tsx so the preview modal follows it too
   businessUnits.ts               Shared BUSINESS_UNIT_LABELS map (tv/plus/news/group → display name)
   theme.ts                     get/apply the light/dark theme (localStorage, falls back to
                               prefers-color-scheme on first load)
@@ -84,10 +98,28 @@ features, not visual-only additions:
   the frontend's gating is a UX nicety, not the real authorization
   boundary. Non-admins can browse/search a unit's documents but see no
   upload button and no delete control on any row.
-- **Deliberately not built**: the design mock's inline document preview
-  (Markdown rendered client-side, a PDF placeholder panel) — would need a
-  new backend endpoint to fetch a document's raw content from MinIO plus
-  a markdown renderer, and wasn't core to "CRUD".
+- **Document preview** (built later, once `NovaMarkdown` existed and a
+  content endpoint was added — `GET /api/v1/documents/{id}/content`):
+  clicking a row's title opens `DocumentPreviewModal`, rendering Markdown
+  via `NovaMarkdown` or a PDF via an `<iframe>` over a blob URL
+  (`useBlobUrl`). Gated on `_require_view` only (same as list), so any
+  unit member can preview, not just admins — unlike upload/delete.
+
+## Chart display (ADR-0026)
+
+When the agent calls the Chart Generation Tool (`mcp-shared`,
+matplotlib-rendered, stored in MinIO), the backend emits a `chart` SSE
+event (`{chart_id, title, chart_type}`) alongside the existing
+`tool_start`/`tool_end` pair. `ChatWindow` accumulates these into
+`liveCharts` during a send (mirroring `liveSteps` exactly) and attaches
+the finished list to `message.charts` once the turn completes;
+`conversations.py`'s history reconstruction does the same from a
+reloaded thread's stored `ToolMessage`s, so a chart shows identically
+whether it just streamed in or was reloaded from a past conversation.
+`MessageBubble` renders each via `ChartImage`, which fetches the image
+through the authenticated Chart Endpoint (`GET /api/v1/charts/{chart_id}`)
+as a Blob (same `useBlobUrl` hook the PDF preview uses) and offers a
+Download link off the same already-fetched blob URL.
 
 ## Conversation history is real, not local-only
 

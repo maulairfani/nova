@@ -14,9 +14,10 @@ app/
     config.py           pydantic-settings, reads .env
     security.py          password hashing (bcrypt) + JWT issue/verify (ADR-0021)
     db.py                async SQLAlchemy engine/session for querying nova_core at runtime
-    storage.py            MinIO client + bucket names (mcn-tv/mcn-plus/mcn-news) - a small
-                          deliberate duplicate of worker/minio_client.py's naming, used only
-                          by documents.py's upload/delete
+    storage.py            MinIO client + bucket names (mcn-tv/mcn-plus/mcn-news, plus
+                          CHARTS_BUCKET=nova-charts) - a small deliberate duplicate of
+                          worker/minio_client.py's naming, used by documents.py's
+                          upload/delete/content and charts.py's read
     vectorstore.py         Qdrant client + collection names, same duplication reasoning -
                           used only by documents.py's delete (removing a document must also
                           remove its points, or Nova would keep citing "deleted" content)
@@ -36,14 +37,23 @@ app/
     endpoints/
       auth.py             POST /auth/login — no signup, accounts are seeded (seed_users.py)
       chat.py              Chat Endpoint — SSE (ADR-0017); also upserts the Conversation row
-                          (title on first message, updated_at bump on later ones)
+                          (title on first message, updated_at bump on later ones); emits a
+                          `chart` SSE event (ADR-0026) alongside tool_start/tool_end when the
+                          agent calls the Chart Generation Tool
       conversations.py     Sidebar list/rename/delete + read-back of a thread's message
                           history (reads the checkpointer's stored state directly rather
                           than rebuilding the full agent), including each assistant turn's
-                          tool-call steps reconstructed from its AIMessage.tool_calls
+                          tool-call steps reconstructed from its AIMessage.tool_calls, and
+                          any charts reconstructed from its ToolMessage results (ADR-0026)
       documents.py          Manage Documents Endpoint - list/upload/delete knowledge base
-                          source files; the only place backend/ talks to MinIO/Qdrant
-                          directly (see below)
+                          source files, plus a read-only content endpoint
+                          (GET /documents/{id}/content, streams raw bytes from MinIO for
+                          the frontend's document preview); the only place backend/ talks
+                          to MinIO/Qdrant directly (see below)
+      charts.py             Chart Endpoint (ADR-0026) - GET /charts/{chart_id}, streams a
+                          chart image the Chart Generation Tool (mcp-shared) rendered and
+                          uploaded to MinIO's nova-charts bucket. Any authenticated caller
+                          may fetch any chart_id - charts aren't business-unit-scoped data
   agent/
     graph.py            create_agent wiring — the ReAct Agent itself
     llm.py              LLM Client — OpenRouter (ADR-0015/0018)
