@@ -528,3 +528,49 @@ tier (the `admin` tier is now enforced for document management, above -
 a separate authorization surface, not the same gap). The design mock's
 inline document preview (Markdown/PDF viewer) was descoped from the
 Manage Documents build.
+
+**Chat markdown rendering replaced with a real parser (react-markdown +
+remark-gfm + remark-breaks), not yet pushed**: a manual QA pass against
+the live deployment found the hand-rolled renderer
+(`frontend/lib/renderInlineMarkdown.tsx`) failed on fenced code blocks
+(the original report), plus tables, blockquotes, strikethrough, task
+lists, and links — the LLM's answers use all of these. Replaced with
+`frontend/lib/NovaMarkdown.tsx`, a styled `components` map over
+react-markdown, restyling every element to the `--nova-*` design tokens
+rather than using its unstyled defaults; the old renderer file was
+deleted rather than left unused. See `frontend/CLAUDE.md`'s new
+"Markdown rendering" section for the one real bug hit along the way
+(the `ol` component override must forward react-markdown's `start` prop
+or every ordered list renumbers to 1) and a documented CommonMark/GFM
+quirk that looks like a bug but isn't (a table can't interrupt a list
+item's lazy-continuation text without a blank line first — verified
+against GitHub's own renderer behavior, not specific to this
+implementation). Verified locally via `tsc --noEmit`, a clean
+`next build`, and a real headless-browser screenshot of a message
+containing every markdown construct from the QA pass, no console
+errors.
+
+**Agent wasn't searching every accessible business unit for
+unit-ambiguous questions — fixed and verified against a live stack**:
+after the markdown fix above, a real document upload (a TDD PDF, filed
+under MCN TV) surfaced a second, unrelated bug: asking Nova "find
+document abt technical design document" (no business unit named) came
+back "not found," even though the file was correctly ingested (verified
+directly — the `documents` row was `ingested`/21 chunks, and Qdrant's
+`mcn_tv` collection held exactly 9 pre-existing + 21 new = 30 points, so
+this wasn't an ingestion-pipeline bug). Root-caused via raw `POST
+/api/v1/chat` calls against the live stack (not log inference): the SSE
+stream's `tool_start`/`tool_end` events showed the agent called only
+`plus_kb_search` for the ambiguous query, never touching `tv_kb_search`
+or `news_kb_search` despite the test identity (`eko.prasetyo`,
+`group`/`admin`) having tools for all three — confirmed by re-running
+the identical query with the business unit named explicitly
+("...knowledge base MCN TV..."), which correctly called `tv_kb_search`
+and found the document. Fixed in `backend/app/agent/prompts.py`: the
+`SYSTEM_PROMPT` now explicitly instructs the agent to call every
+business unit's tool it has access to before concluding something
+doesn't exist, when the question doesn't name a specific unit. Verified
+by rebuilding `backend-api` and re-running the exact same failing query
+via the API — it now calls `tv_kb_search` + `plus_kb_search` +
+`news_kb_search` in the same turn and correctly finds and describes the
+document.

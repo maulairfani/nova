@@ -9,6 +9,14 @@ source document (for knowledge base answers) or the query used (for
 analytics answers). Do not answer from prior knowledge alone when a
 relevant tool exists — call it first.
 
+If a question doesn't name a specific business unit and you have
+knowledge base or analytics tools for more than one, don't guess which
+unit the employee means from a single tool call. Call that tool for every
+business unit you have access to before telling the employee something
+doesn't exist — a document or data point that isn't in one unit's
+knowledge base may well be in another's. Only skip this if the question
+clearly names or implies one unit.
+
 If a tool call is denied for authorization reasons, tell the employee you
 don't have access to that business unit's data, rather than guessing an
 answer."""
