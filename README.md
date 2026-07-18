@@ -12,11 +12,10 @@ Full architecture and rationale: [`documents/technical-design-document.md`](docu
 with every significant tech decision recorded as an ADR under
 [`documents/adr/`](documents/adr/).
 
-## Status: 3 business units, real auth, and async ingestion live
+## How it works
 
-All 3 of Nova's business units (MCN TV, MCN+, MCN News) plus a shared
-web-search fallback run end-to-end, behind real login. Concretely,
-running today:
+Nova covers all 3 of MCN Group's business units (MCN TV, MCN+, MCN News)
+plus a shared web-search fallback, behind real login:
 
 - Employee logs in (`POST /api/v1/auth/login` — no signup, accounts are
   seeded, see [`backend/SEED_USERS.md`](backend/SEED_USERS.md)) and asks a
@@ -27,7 +26,8 @@ running today:
   read-only) → agent generates a grounded, cited answer → streamed back
   token-by-token.
 - If internal sources don't have the answer, the agent falls back to the
-  Shared MCP Server's web search tool (Tavily).
+  Shared MCP Server's web search tool (Tavily); it can also generate a
+  chart from an analytics result, shown inline in the chat.
 - Conversation history persists across sessions (LangGraph's Postgres
   checkpointer).
 - Repeated questions hit a Redis cache instead of re-querying tools.
@@ -35,19 +35,16 @@ running today:
   triggers ingestion (a real webhook, not polling or a manual step) —
   parsed (Markdown/PDF), chunked, embedded, and searchable within seconds,
   no redeploy or manual re-seed needed.
+- Questions that span more than one business unit (TDD §6.3) work for any
+  identity with more than one business-unit claim (e.g. `group_admin`, or
+  a membership spanning multiple units) — the agent calls each relevant
+  unit's tools within the same turn and synthesizes a combined, cited
+  answer.
 
-Cross-business-unit question synthesis (TDD §6.3) works for any identity
-with more than one business-unit claim (e.g. `group_admin`, or a
-membership spanning multiple units) — the agent calls each relevant
-unit's tools within the same turn and synthesizes a combined, cited
-answer; verified live with a real multi-unit identity comparing MCN TV's
-ad revenue against MCN+'s subscription revenue.
-
-**Not yet built** (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
-Section 11): enforcement of `business_unit_roles`' `finance`/`admin`
-tiers by the SQL Analytics Tool (the tier is stored and forwarded,
-ADR-0021, but not yet checked by any MCP server — every unit member
-currently gets the same data-query access regardless of tier).
+Known limitation (see [`documents/technical-design-document.md`](documents/technical-design-document.md)
+Section 11): `business_unit_roles`' `finance`/`admin` tiers are stored and
+forwarded (ADR-0021) but not yet enforced by the SQL Analytics Tool — every
+unit member currently gets the same data-query access regardless of tier.
 
 ## Tech stack
 
