@@ -13,7 +13,6 @@
   --nova-accent-ink: #ffffff;
   --nova-user-bubble: #1c1a17;
   --nova-user-ink: #f7f5f2;
-  --nova-assistant-bubble: #ffffff;
   --nova-danger: #b3452f;
   --nova-danger-soft: #f7e6e0;
   --nova-ring: #b8843a;
@@ -39,7 +38,6 @@
     --nova-accent-ink: #17140f;
     --nova-user-bubble: #f2ede6;
     --nova-user-ink: #17140f;
-    --nova-assistant-bubble: #211d16;
     --nova-danger: #e0785a;
     --nova-danger-soft: #3a241d;
     --nova-ring: #d4a256;
@@ -65,7 +63,6 @@
   --nova-accent-ink: #17140f;
   --nova-user-bubble: #f2ede6;
   --nova-user-ink: #17140f;
-  --nova-assistant-bubble: #211d16;
   --nova-danger: #e0785a;
   --nova-danger-soft: #3a241d;
   --nova-ring: #d4a256;
@@ -92,6 +89,34 @@ body {
 
 #__next {
   height: 100%;
+}
+
+/* Themed scrollbars — replace the browser default with one that matches
+   the design tokens instead of clashing with dark theme (Firefox). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nova-border) transparent;
+}
+
+/* WebKit/Chromium/Edge */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--nova-border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--nova-ink-faint);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 ::selection {

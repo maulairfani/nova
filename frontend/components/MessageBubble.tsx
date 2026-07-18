@@ -1,20 +1,25 @@
+import { ChartImage } from "./ChartImage";
 import { NovaMarkdown } from "../lib/NovaMarkdown";
+import { ChartStep } from "../lib/streamChat";
 import { LiveStepData, LiveSteps, StepData, StepsTrace } from "./ToolSteps";
 
 export interface Message {
   role: "user" | "assistant";
   content: string;
   steps?: StepData[];
+  charts?: ChartStep[];
 }
 
 export function MessageBubble({
   message,
   isStreaming,
   liveSteps,
+  liveCharts,
 }: {
   message: Message;
   isStreaming?: boolean;
   liveSteps?: LiveStepData[];
+  liveCharts?: ChartStep[];
 }) {
   const isUser = message.role === "user";
 
@@ -39,40 +44,35 @@ export function MessageBubble({
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start" }}>
-      <div
-        style={{
-          maxWidth: "82%",
-          background: "var(--nova-assistant-bubble)",
-          border: "1px solid var(--nova-border)",
-          padding: "14px 18px",
-          borderRadius: "16px 16px 16px 4px",
-        }}
-      >
-        {isStreaming && liveSteps && liveSteps.length > 0 ? (
-          <LiveSteps steps={liveSteps} />
-        ) : (
-          message.steps && message.steps.length > 0 && <StepsTrace steps={message.steps} />
-        )}
+    <div style={{ width: "100%" }}>
+      {isStreaming && liveSteps && liveSteps.length > 0 ? (
+        <LiveSteps steps={liveSteps} />
+      ) : (
+        message.steps && message.steps.length > 0 && <StepsTrace steps={message.steps} />
+      )}
 
-        {message.content ? (
-          <div className="nova-markdown" style={{ font: "400 15px/1.65 var(--font-figtree),sans-serif", color: "var(--nova-ink)" }}>
-            <NovaMarkdown text={message.content} />
+      {(isStreaming ? liveCharts : message.charts)?.map((chart) => (
+        <ChartImage key={chart.chart_id} chartId={chart.chart_id} title={chart.title} />
+      ))}
+
+      {message.content ? (
+        <div className="nova-markdown" style={{ font: "400 15px/1.65 var(--font-figtree),sans-serif", color: "var(--nova-ink)" }}>
+          <NovaMarkdown text={message.content} />
+        </div>
+      ) : (
+        isStreaming &&
+        !(liveSteps && liveSteps.length > 0) &&
+        !(liveCharts && liveCharts.length > 0) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <TypingDot delay={0} />
+            <TypingDot delay={0.15} />
+            <TypingDot delay={0.3} />
+            <span style={{ font: "500 11.5px/1.4 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginLeft: 4 }}>
+              Nova is responding…
+            </span>
           </div>
-        ) : (
-          isStreaming &&
-          !(liveSteps && liveSteps.length > 0) && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <TypingDot delay={0} />
-              <TypingDot delay={0.15} />
-              <TypingDot delay={0.3} />
-              <span style={{ font: "500 11.5px/1.4 var(--font-figtree),sans-serif", color: "var(--nova-ink-muted)", marginLeft: 4 }}>
-                Nova is responding…
-              </span>
-            </div>
-          )
-        )}
-      </div>
+        )
+      )}
     </div>
   );
 }

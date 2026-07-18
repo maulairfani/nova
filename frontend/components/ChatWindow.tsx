@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getClaims, getToken, logout as clearToken, TokenClaims } from "../lib/auth";
 import { BP_SHELL_MAX } from "../lib/breakpoints";
 import { useMediaQuery } from "../lib/useMediaQuery";
@@ -13,9 +13,10 @@ import {
   renameConversation,
 } from "../lib/conversations";
 import { BUSINESS_UNIT_LABELS } from "../lib/businessUnits";
-import { streamChat, UnauthorizedError } from "../lib/streamChat";
+import { ChartStep, RateLimitedError, streamChat, UnauthorizedError } from "../lib/streamChat";
 import { applyTheme, getStoredTheme, Theme } from "../lib/theme";
-import { ChatInput } from "./ChatInput";
+import { formatCountdown, getUsage, UsageStatus } from "../lib/usage";
+import { ChatInput, FeatureKey } from "./ChatInput";
 import { DocumentsView } from "./DocumentsView";
 import { Message, MessageBubble } from "./MessageBubble";
 import { NovaMark } from "./NovaMark";
@@ -42,6 +43,8 @@ type View = "empty" | "active" | "settings" | "documents";
 
 export function ChatWindow() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const conversationIdFromUrl = searchParams.get("c");
   const [claims, setClaims] = useState<TokenClaims | null>(null);
   const [theme, setTheme] = useState<Theme>("light");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -54,8 +57,15 @@ export function ChatWindow() {
   const [view, setView] = useState<View>("empty");
   const [busy, setBusy] = useState(false);
   const [liveSteps, setLiveSteps] = useState<LiveStepData[]>([]);
+  const [liveCharts, setLiveCharts] = useState<ChartStep[]>([]);
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
+  const [usageFetchedAt, setUsageFetchedAt] = useState(0);
+  const [usageError, setUsageError] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
   const threadIdRef = useRef<string>(newThreadId());
   const liveStepsRef = useRef<LiveStepData[]>([]);
+  const liveChartsRef = useRef<ChartStep[]>([]);
+  const loadedConvIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,9 +91,77 @@ export function ChatWindow() {
       .finally(() => setConversationsLoading(false));
   }, [claims]);
 
+  const refreshUsage = async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const status = await getUsage(token);
+      setUsage(status);
+      setUsageFetchedAt(Date.now());
+      setUsageError(false);
+    } catch {
+      setUsageError(true);
+    }
+  };
+
+  // ADR-0027 chat rate limit: a fresh snapshot on login and every time
+  // Settings is opened, so the progress bar never shows stale data.
+  useEffect(() => {
+    if (claims) refreshUsage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claims]);
+
+  useEffect(() => {
+    if (view === "settings") refreshUsage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  const isRateLimited = !!usage && usage.remaining <= 0;
+  const remainingSeconds = usage ? Math.max(0, usage.reset_seconds - Math.floor((nowTick - usageFetchedAt) / 1000)) : 0;
+
+  // Ticks the displayed countdown locally instead of repolling every
+  // second - only runs while a countdown is actually visible somewhere.
+  useEffect(() => {
+    if (view !== "settings" && !isRateLimited) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [view, isRateLimited]);
+
+  // Once the local countdown reaches zero while blocked, confirm with the
+  // server rather than trusting the client clock - this is what re-enables
+  // the composer once the real window resets.
+  useEffect(() => {
+    if (isRateLimited && remainingSeconds <= 0) refreshUsage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainingSeconds]);
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  // Keeps the open conversation in sync with the `c` URL param — the single
+  // source of truth for "which conversation is active" is the URL, not
+  // component state, so a refresh lands back on the same conversation.
+  // loadedConvIdRef guards against re-fetching a conversation whose id we
+  // just pushed into the URL ourselves (e.g. handleSend's first message),
+  // which would otherwise clobber the in-progress streamed reply.
+  useEffect(() => {
+    if (!claims) return;
+    if (!conversationIdFromUrl) {
+      if (loadedConvIdRef.current !== null) {
+        loadedConvIdRef.current = null;
+        threadIdRef.current = newThreadId();
+        setActiveConvId(null);
+        setMessages([]);
+        setView((v) => (v === "settings" || v === "documents" ? v : "empty"));
+      }
+      return;
+    }
+    if (conversationIdFromUrl === loadedConvIdRef.current) return;
+    loadedConvIdRef.current = conversationIdFromUrl;
+    loadConversation(conversationIdFromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claims, conversationIdFromUrl]);
 
   useEffect(() => {
     if (!isMobileShell) setMobileSidebarOpen(false);
@@ -111,13 +189,15 @@ export function ChatWindow() {
   };
 
   const newChat = () => {
+    loadedConvIdRef.current = null;
     threadIdRef.current = newThreadId();
     setActiveConvId(null);
     setMessages([]);
     setView("empty");
+    router.push("/");
   };
 
-  const selectConversation = async (id: string) => {
+  const loadConversation = async (id: string) => {
     const token = getToken();
     if (!token) return;
     threadIdRef.current = id;
@@ -130,6 +210,10 @@ export function ChatWindow() {
     } catch {
       // leave the (empty) message list — the conversation still opens
     }
+  };
+
+  const selectConversation = (id: string) => {
+    router.push(`/?c=${id}`);
   };
 
   const handleRename = async (id: string, title: string) => {
@@ -155,18 +239,21 @@ export function ChatWindow() {
     }
   };
 
-  const handleSend = async (text: string) => {
+  const handleSend = async (text: string, forceTools: FeatureKey[] = []) => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
+    if (isRateLimited) return;
 
     const isNewConversation = activeConvId === null;
     const threadId = threadIdRef.current;
 
     if (isNewConversation) {
       setActiveConvId(threadId);
+      loadedConvIdRef.current = threadId;
+      router.push(`/?c=${threadId}`);
       setConversations((prev) => [{ id: threadId, title: conversationTitle(text), updated_at: new Date().toISOString() }, ...prev]);
     } else {
       setConversations((prev) =>
@@ -181,12 +268,15 @@ export function ChatWindow() {
     setBusy(true);
     liveStepsRef.current = [];
     setLiveSteps([]);
+    liveChartsRef.current = [];
+    setLiveCharts([]);
 
     try {
       await streamChat({
         threadId,
         message: text,
         token,
+        forceTools,
         onToken: (token) => {
           setMessages((prev) => {
             const next = [...prev];
@@ -202,17 +292,41 @@ export function ChatWindow() {
           liveStepsRef.current = liveStepsRef.current.map((s) => (s.id === id ? { ...s, status: "done" } : s));
           setLiveSteps(liveStepsRef.current);
         },
+        onChart: (chart) => {
+          liveChartsRef.current = [...liveChartsRef.current, chart];
+          setLiveCharts(liveChartsRef.current);
+        },
+        onRateLimit: (info) => {
+          setUsage({ used: info.limit - info.remaining, limit: info.limit, remaining: info.remaining, reset_seconds: info.resetSeconds });
+          setUsageFetchedAt(Date.now());
+        },
       });
       const finishedSteps = liveStepsRef.current.map(({ type, label }) => ({ type, label }));
+      const finishedCharts = liveChartsRef.current;
       setMessages((prev) => {
         const next = [...prev];
-        next[next.length - 1] = { ...next[next.length - 1], steps: finishedSteps };
+        next[next.length - 1] = { ...next[next.length - 1], steps: finishedSteps, charts: finishedCharts };
         return next;
       });
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         clearToken();
         router.replace("/login");
+        return;
+      }
+      if (err instanceof RateLimitedError) {
+        setUsage({
+          used: err.rateLimit.limit - err.rateLimit.remaining,
+          limit: err.rateLimit.limit,
+          remaining: err.rateLimit.remaining,
+          reset_seconds: err.rateLimit.resetSeconds,
+        });
+        setUsageFetchedAt(Date.now());
+        setMessages((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = { role: "assistant", content: err.message };
+          return next;
+        });
         return;
       }
       setMessages((prev) => {
@@ -224,10 +338,16 @@ export function ChatWindow() {
       setBusy(false);
       liveStepsRef.current = [];
       setLiveSteps([]);
+      liveChartsRef.current = [];
+      setLiveCharts([]);
     }
   };
 
   if (!claims) return null;
+
+  const blockedReason = isRateLimited
+    ? `You've reached the limit of ${usage!.limit} messages per 5-hour window. Resets in ${formatCountdown(remainingSeconds)}.`
+    : null;
 
   const unitLabel = claims.business_units.length
     ? claims.business_units.map((u) => BUSINESS_UNIT_LABELS[u.code] ?? u.code).join(", ")
@@ -296,7 +416,6 @@ export function ChatWindow() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            borderBottom: "1px solid var(--nova-border)",
             background: "var(--nova-bg)",
           }}
         >
@@ -349,11 +468,21 @@ export function ChatWindow() {
               </div>
               <div className="nova-starter-grid">
                 {STARTER_PROMPTS.map((p) => (
-                  <button key={p} onClick={() => handleSend(p)} style={starterCardStyle}>
+                  <button
+                    key={p}
+                    onClick={() => handleSend(p)}
+                    disabled={isRateLimited}
+                    style={{ ...starterCardStyle, opacity: isRateLimited ? 0.5 : 1, cursor: isRateLimited ? "default" : "pointer" }}
+                  >
                     {p}
                   </button>
                 ))}
               </div>
+              {blockedReason && (
+                <div style={{ marginTop: 16, font: "400 13px/1.5 var(--font-figtree),sans-serif", color: "var(--nova-danger)" }}>
+                  {blockedReason}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -367,6 +496,7 @@ export function ChatWindow() {
                   message={m}
                   isStreaming={busy && i === messages.length - 1}
                   liveSteps={busy && i === messages.length - 1 ? liveSteps : undefined}
+                  liveCharts={busy && i === messages.length - 1 ? liveCharts : undefined}
                 />
               ))}
             </div>
@@ -381,12 +511,15 @@ export function ChatWindow() {
             theme={theme}
             onToggleTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
             onLogout={handleLogout}
+            usage={usage}
+            usageError={usageError}
+            remainingSeconds={remainingSeconds}
           />
         )}
 
         {view === "documents" && <DocumentsView units={documentUnits} canManageUnit={canManageUnit} />}
 
-        {view !== "settings" && view !== "documents" && <ChatInput onSend={handleSend} disabled={busy} />}
+        {view !== "settings" && view !== "documents" && <ChatInput onSend={handleSend} disabled={busy} blockedReason={blockedReason} />}
       </div>
     </div>
   );
