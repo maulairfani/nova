@@ -6,6 +6,8 @@ knowledge base (SOPs, documentation), each business unit's own data
 (queried live, not from a warehouse copy), and the public web when
 internal sources don't have the answer.
 
+![Nova generating a chart from a live analytics query](documents/image.png)
+
 Full architecture and rationale: [`documents/technical-design-document.md`](documents/technical-design-document.md),
 with every significant tech decision recorded as an ADR under
 [`documents/adr/`](documents/adr/).
