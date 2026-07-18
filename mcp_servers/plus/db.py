@@ -23,7 +23,13 @@ class NonSelectQueryError(Exception):
 
 async def run_select(sql: str) -> list[dict]:
     normalized = sql.strip().lower()
-    if not normalized.startswith("select"):
+    # A CTE (`WITH ... SELECT ...`) is a legitimate, read-only query - the
+    # SQL Analytics Tool's own text-to-SQL step reaches for one on any
+    # question involving a comparison (e.g. week-over-week/month-over-month),
+    # and rejecting it here as "not a SELECT" was a real bug, not just an
+    # overly cautious guard: it made every WoW/MoM-style question fail
+    # every time, deterministically, regardless of how the query was worded.
+    if not (normalized.startswith("select") or normalized.startswith("with")):
         raise NonSelectQueryError("Only SELECT statements are allowed.")
     if any(keyword in normalized for keyword in _FORBIDDEN_KEYWORDS):
         raise NonSelectQueryError("Query contains a forbidden keyword.")

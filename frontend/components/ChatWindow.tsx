@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getClaims, getToken, logout as clearToken, TokenClaims } from "../lib/auth";
 import { BP_SHELL_MAX } from "../lib/breakpoints";
@@ -61,6 +61,8 @@ export function ChatWindow() {
   const [liveCharts, setLiveCharts] = useState<ChartStep[]>([]);
   const [liveCitations, setLiveCitations] = useState<Citation[]>([]);
   const [sourcesPanel, setSourcesPanel] = useState<{ citations: Citation[]; highlightIndex?: number } | null>(null);
+  const [composeRequest, setComposeRequest] = useState<{ text: string; nonce: number } | null>(null);
+  const composeNonceRef = useRef(0);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageFetchedAt, setUsageFetchedAt] = useState(0);
   const [usageError, setUsageError] = useState(false);
@@ -361,6 +363,25 @@ export function ChatWindow() {
     }
   };
 
+  // handleSend is recreated every render (it closes over lots of state),
+  // so MessageBubble's onQuickReply must not close over it directly - that
+  // would recreate the prop every render, which defeats NovaMarkdown's
+  // `pre`-override memoization and silently remounts (resets) any
+  // in-progress nova-multi-choice selection on the next unrelated render.
+  // Routing the call through a ref keeps the callback identity stable
+  // while still invoking the latest handleSend.
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  const handleQuickReply = useCallback((text: string) => handleSendRef.current(text), []);
+  const handleComposeText = useCallback(
+    (text: string) => setComposeRequest({ text, nonce: ++composeNonceRef.current }),
+    []
+  );
+  const handleOpenSources = useCallback(
+    (sourceCitations: Citation[], highlightIndex?: number) => setSourcesPanel({ citations: sourceCitations, highlightIndex }),
+    []
+  );
+
   if (!claims) return null;
 
   const blockedReason = isRateLimited
@@ -516,7 +537,10 @@ export function ChatWindow() {
                   liveSteps={busy && i === messages.length - 1 ? liveSteps : undefined}
                   liveCharts={busy && i === messages.length - 1 ? liveCharts : undefined}
                   liveCitations={busy && i === messages.length - 1 ? liveCitations : undefined}
-                  onOpenSources={(citations, highlightIndex) => setSourcesPanel({ citations, highlightIndex })}
+                  onOpenSources={handleOpenSources}
+                  onQuickReply={handleQuickReply}
+                  onComposeText={handleComposeText}
+                  interactionsDisabled={busy || isRateLimited || i !== messages.length - 1}
                 />
               ))}
             </div>
@@ -539,7 +563,9 @@ export function ChatWindow() {
 
         {view === "documents" && <DocumentsView units={documentUnits} canManageUnit={canManageUnit} />}
 
-        {view !== "settings" && view !== "documents" && <ChatInput onSend={handleSend} disabled={busy} blockedReason={blockedReason} />}
+        {view !== "settings" && view !== "documents" && (
+          <ChatInput onSend={handleSend} disabled={busy} blockedReason={blockedReason} composeRequest={composeRequest} />
+        )}
       </div>
 
       {sourcesPanel && (

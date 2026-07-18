@@ -686,3 +686,67 @@ before vs. after) after an initial narrow-viewport test falsely suggested
 otherwise (a pre-existing, unrelated long-title sizing characteristic of
 the table's `width:"max-content"` layout, present regardless of delete
 state - not touched, out of scope).
+
+**Clickable quick-reply / multi-choice message options — complete and
+verified end-to-end**: user asked for a way for Nova's answers to offer
+clickable options instead of only plain text, as two kinds - a single-click
+kind that sends immediately, and a multi-select kind. Implemented as two
+fenced-code-block markdown extensions (`nova-quick-replies` /
+`nova-multi-choice`), parsed in `frontend/lib/NovaMarkdown.tsx`'s `pre`
+override by language tag (reusing react-markdown/remark-gfm's existing
+fence parsing rather than a text regex, since the block is multi-line with
+a clear boundary, unlike the citation marker). Quick-reply clicks send
+their exact text immediately; multi-choice clicks toggle selection and
+write the joined selected set into the *existing* message composer
+(per explicit user instruction - no separate confirm button, reusing
+`ChatInput`'s Send button). `backend/app/agent/prompts.py`'s SYSTEM_PROMPT
+instructs the model when/how to use each, explicitly warning it not to
+copy the prompt's own example options verbatim.
+
+A real, subtle bug was caught and fixed during verification (a temporary,
+since-deleted `app/dev-preview` route rendering `MessageBubble` in
+isolation via Playwright, then a full rebuild + live-stack browser pass):
+the new multi-choice block's selection state was silently wiped on every
+unrelated app re-render, root-caused to several non-memoized inline
+props/arrays feeding into `NovaMarkdown`'s (correctly) memoized `pre`
+override, which made react-markdown treat it as a changed component type
+and force a full remount of anything it rendered - invisible for the
+existing (stateless) citation badges, but state-destroying for the new
+stateful block. Fixed by memoizing those props (`useMemo`/`useCallback`)
+at their source in `MessageBubble.tsx`/`ChatWindow.tsx`. See
+`frontend/CLAUDE.md`'s and `backend/CLAUDE.md`'s matching sections for
+the full detail - this is a real architectural finding relevant to any
+future stateful block added to chat markdown, not just this feature.
+
+Verified via an isolated Playwright pass exercising both blocks directly
+(clicking two multi-choice options accumulates correctly, toggling one
+back off drops only that one, a quick-reply click fires immediately with
+its exact text, zero console errors/warnings after the fix), then a full
+`docker compose build` of `backend-api`/`frontend`, a live curl smoke test
+of the chat endpoint, and a live-stack browser login+chat pass with zero
+console errors. Uncommitted so far.
+
+**Real bug found while testing the above: the SQL Analytics Tool
+rejected its own valid queries — fixed in all 3 business units**: user
+reported the analytics tool "kena error mulu" (kept erroring) while
+manually testing the quick-reply/multi-choice feature above. Root-caused
+by calling `mcp-tv`'s `sql_analytics` directly, bypassing the agent: any
+question needing a comparison (week-over-week, month-over-month, "latest
+vs. last 7/30 days") made the tool's own text-to-SQL step correctly write
+a `WITH ... SELECT ...` CTE, which `db.py`'s guard rejected outright since
+it only recognized a literal `select` prefix — a deterministic 100%
+failure rate for that whole class of question, not an occasional model
+slip. Fixed identically in `mcp_servers/{tv,plus,news}/db.py` by also
+accepting a `with`-prefixed query (the existing forbidden-keyword check
+still runs afterward, so this doesn't weaken the actual safety guarantee —
+see `mcp_servers/tv/CLAUDE.md` for why). Added a regression test in each
+unit's `tests/test_db.py`. Verified: all 3 units' full test suites
+(8/8 each) pass, the exact previously-failing question now returns real
+data both calling the tool directly and through a full live chat request,
+and the frontend's quick-reply/multi-choice fixes above were separately
+verified: old-turn option buttons are now disabled (only the latest
+message's options are clickable), and the prompt guiding which block to
+use was rewritten around whether more than one answer could reasonably
+apply at once, rather than around the employee naming a format explicitly
+(the first version was based on a misreading of QA testing as real usage,
+caught by the user before it shipped). Uncommitted, on top of the above.

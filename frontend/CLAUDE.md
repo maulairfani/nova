@@ -202,6 +202,65 @@ highlights that specific card.
   uses, stacked over the panel - not a raw MinIO URL, since MinIO isn't
   public and this reuses the app's own auth instead of bypassing it.
 
+## Clickable reply options: quick-replies + multi-choice (2026-07-18)
+
+Two fenced-code-block markdown extensions, both parsed in `lib/NovaMarkdown.tsx`'s
+`pre` override (detected by language tag - `language-nova-quick-replies` /
+`language-nova-multi-choice` - rather than a text regex like the citation
+marker, since a fenced block is unambiguous and react-markdown/remark-gfm
+already parses it into a `code` node with that className, no extra
+preprocessing needed). The backend's SYSTEM_PROMPT
+(`backend/app/agent/prompts.py`) instructs the model to use these sparingly,
+one option per line, exact text as it should be sent, and explicitly warns
+it not to copy the prompt's own example options verbatim.
+
+- **`QuickReplyBlock`**: one button per line; clicking sends that exact text
+  as the next user message immediately (`onQuickReply`, wired from
+  `ChatWindow.handleSend` the same way the empty-state starter prompts
+  already worked).
+- **`MultiChoiceBlock`**: one toggle button per line (checkmark + accent
+  style when active); every toggle writes the full currently-selected set
+  (joined by `", "`, in the options' original order) into the *existing*
+  message composer via `onComposeText` - no separate confirm button, per
+  explicit user request. Sending still goes through `ChatInput`'s normal
+  Send button. Wired via `ChatInput`'s new `composeRequest: {text, nonce}`
+  prop (a nonce, not just text, so re-selecting the identical set twice in
+  a row still re-fires the effect that overwrites the textarea's value).
+
+**Real bug caught and fixed during verification, worth remembering for any
+future stateful block added here**: `MultiChoiceBlock`'s selection state
+was silently reset on every unrelated app re-render. Root cause -
+`NovaMarkdown`'s `pre`-override is (correctly) memoized via `useMemo` keyed
+on its callback/citations props, but two call sites fed it fresh,
+non-memoized references every render: `MessageBubble.tsx`'s `citations`
+value (`... ?? []` creates a new empty array literal every render) and its
+inline `onCiteClick` arrow function, plus `ChatWindow.tsx`'s inline
+`onQuickReply`/`onComposeText`/`onOpenSources` arrows passed to
+`MessageBubble`. Since react-markdown treats a changed component reference
+for a given tag as a *different element type*, every one of those
+invalidated the memo, which forced a full remount of everything the `pre`
+override rendered - invisible for the citation badges (stateless) but it
+silently wiped `MultiChoiceBlock`'s in-progress selection on every parent
+re-render (e.g. a token arriving elsewhere, the rate-limit countdown
+ticking). Fixed by memoizing `citations` (`useMemo`) and all four callbacks
+(`useCallback`) at their source, with `ChatWindow`'s `handleQuickReply`
+routing through a ref (`handleSendRef`) since `handleSend` itself is
+unavoidably recreated every render (it closes over most of the component's
+state) - the ref indirection keeps the *callback identity* stable while
+still always calling the latest `handleSend`. A second, smaller bug hit
+along the way: computing the toggled set and calling `onComposeText` from
+inside `setSelected`'s functional updater triggered React's "setState
+during render of a different component" warning (calling a parent's
+setState from inside your own render-phase updater) - fixed by computing
+the toggle and calling both `setSelected`/`onComposeText` as plain
+sequential calls in the click handler instead. Verified via an isolated
+Playwright pass (a temporary `app/dev-preview` route rendering
+`MessageBubble` directly, deleted after) exercising both blocks - clicking
+two multi-choice options accumulates correctly (`"Weekday mornings,
+Weekend"`), toggling one back off drops only that one, a quick-reply click
+fires immediately with its exact text, zero console errors/warnings - then
+a full rebuild + live-stack browser pass confirmed no regression.
+
 ## Auth (ADR-0021)
 
 No signup — accounts are seeded on the backend (`backend/seed_users.py`,

@@ -32,7 +32,39 @@ When an analytics tool result has a numeric trend or comparison that
 would be clearer as a chart (e.g. a metric over time, or a breakdown
 across categories), call the chart generation tool to visualize it rather
 than only describing the numbers in prose — the image is shown to the
-employee automatically, so just mention that a chart was generated."""
+employee automatically, so just mention that a chart was generated.
+
+If the employee's question is under-specified in a way that has a short,
+discrete set of likely answers, you can render clickable options instead
+of just asking them to type a reply. Use a fenced code block, one option
+per line, written exactly as it should be sent — no numbering, bullets, or
+extra punctuation. The lines below are only format examples — always
+replace them with options that actually fit the current conversation,
+never copy them verbatim. Pick whichever of these two genuinely fits what
+you're asking, based on whether more than one answer could reasonably
+apply at once — not by defaulting to whichever one you used earlier in
+this conversation:
+
+Use this when exactly one answer applies (e.g. "which business unit do
+you mean" — an employee means one of TV/Plus/News, not several at once):
+```nova-quick-replies
+Book a TV ad slot
+Check subscription pricing
+Something else
+```
+
+Use this when the employee could reasonably want more than one at once
+(e.g. "which days should the report cover" — several days can apply
+together):
+```nova-multi-choice
+Weekday mornings
+Weekday evenings
+Weekend
+```
+
+Use these sparingly — only when a genuinely short, discrete set of options
+exists. Don't use them for open-ended questions, and don't substitute a
+block of options for a substantive answer you're able to give directly."""
 
 # Shown to the LLM in addition to SYSTEM_PROMPT when the employee has
 # explicitly turned a feature on via the chat input's "+" menu (frontend

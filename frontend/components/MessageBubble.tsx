@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import { ChartImage } from "./ChartImage";
 import { NovaMarkdown } from "../lib/NovaMarkdown";
 import { ChartStep, Citation } from "../lib/streamChat";
@@ -18,6 +19,9 @@ export function MessageBubble({
   liveCharts,
   liveCitations,
   onOpenSources,
+  onQuickReply,
+  onComposeText,
+  interactionsDisabled,
 }: {
   message: Message;
   isStreaming?: boolean;
@@ -25,6 +29,9 @@ export function MessageBubble({
   liveCharts?: ChartStep[];
   liveCitations?: Citation[];
   onOpenSources?: (citations: Citation[], highlightIndex?: number) => void;
+  onQuickReply?: (text: string) => void;
+  onComposeText?: (text: string) => void;
+  interactionsDisabled?: boolean;
 }) {
   const isUser = message.role === "user";
 
@@ -48,7 +55,20 @@ export function MessageBubble({
     );
   }
 
-  const citations = (isStreaming ? liveCitations : message.citations) ?? [];
+  // A stable reference here matters, not just cosmetics: NovaMarkdown's
+  // `pre` override is memoized on this array, and react-markdown treats a
+  // changed `pre` component reference as a different element type -
+  // forcing a full remount (and state loss) of whatever it renders, which
+  // silently broke the nova-multi-choice block's selection state before
+  // this was memoized (a fresh `?? []` literal on every unrelated render).
+  const citations = useMemo(() => (isStreaming ? liveCitations : message.citations) ?? [], [isStreaming, liveCitations, message.citations]);
+  // Same stable-reference reasoning as `citations` above - this used to be
+  // a fresh inline arrow function every render, which fed into the same
+  // NovaMarkdown memo and caused the same false remount.
+  const handleCiteClick = useCallback(
+    (citation: Citation) => onOpenSources?.(citations, citations.indexOf(citation)),
+    [citations, onOpenSources]
+  );
 
   return (
     <div style={{ width: "100%" }}>
@@ -67,7 +87,10 @@ export function MessageBubble({
           <NovaMarkdown
             text={message.content}
             citations={citations}
-            onCiteClick={(citation) => onOpenSources?.(citations, citations.indexOf(citation))}
+            onCiteClick={handleCiteClick}
+            onQuickReply={onQuickReply}
+            onComposeText={onComposeText}
+            interactionsDisabled={interactionsDisabled}
           />
         </div>
       ) : (

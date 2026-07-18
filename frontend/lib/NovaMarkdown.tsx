@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useMemo } from "react";
+import { CSSProperties, ReactNode, useMemo, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -40,10 +40,158 @@ const INLINE_CODE_STYLE: CSSProperties = {
   font: "400 0.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
 };
 
+// Matches the SYSTEM_PROMPT's instructed block languages
+// (backend/app/agent/prompts.py) - a fenced code block, one clickable
+// option per line, exact text as it should be sent. Detected in the `pre`
+// override below rather than via a text regex (like the citation marker)
+// because a fenced block is unambiguous and react-markdown/remark-gfm
+// already parses it into a `code` node with a `language-*` className -
+// no custom preprocessing needed.
+const QUICK_REPLY_LANG = "nova-quick-replies";
+const MULTI_CHOICE_LANG = "nova-multi-choice";
+
+function parseOptionLines(code: string): string[] {
+  return code
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+const OPTION_BLOCK_WRAP_STYLE: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  margin: "6px 0 10px",
+};
+
+const OPTION_BTN_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "7px 14px",
+  borderRadius: 999,
+  border: "1px solid var(--nova-accent)",
+  background: "var(--nova-accent-soft)",
+  color: "var(--nova-accent)",
+  font: "600 13px/1.3 var(--font-figtree),sans-serif",
+  cursor: "pointer",
+};
+
+const OPTION_BTN_INACTIVE_STYLE: CSSProperties = {
+  ...OPTION_BTN_STYLE,
+  border: "1px solid var(--nova-border)",
+  background: "var(--nova-surface)",
+  color: "var(--nova-ink)",
+};
+
+const OPTION_BTN_DISABLED_STYLE: CSSProperties = { opacity: 0.55, cursor: "default" };
+
+/** Single-click-to-send options (`nova-quick-replies` fence) - each click
+ * sends its exact label as the next user message immediately. */
+function QuickReplyBlock({
+  code,
+  onSend,
+  disabled,
+}: {
+  code: string;
+  onSend?: (text: string) => void;
+  disabled?: boolean;
+}) {
+  const options = useMemo(() => parseOptionLines(code), [code]);
+  if (options.length === 0) return null;
+  return (
+    <div style={OPTION_BLOCK_WRAP_STYLE}>
+      {options.map((opt, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onSend?.(opt)}
+          disabled={disabled}
+          style={disabled ? { ...OPTION_BTN_STYLE, ...OPTION_BTN_DISABLED_STYLE } : OPTION_BTN_STYLE}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Multi-select options (`nova-multi-choice` fence) - clicking toggles an
+ * option; the currently-selected set is written into the existing message
+ * composer (joined by ", ") on every toggle, so sending still goes through
+ * the composer's normal Send button rather than a separate one. */
+function MultiChoiceBlock({
+  code,
+  onComposeText,
+  disabled,
+}: {
+  code: string;
+  onComposeText?: (text: string) => void;
+  disabled?: boolean;
+}) {
+  const options = useMemo(() => parseOptionLines(code), [code]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  if (options.length === 0) return null;
+
+  // Computed here (not inside setSelected's updater) so onComposeText -
+  // which calls back up into a parent's setState - isn't invoked during
+  // this component's render phase, which React (correctly) warns about.
+  const toggle = (opt: string) => {
+    const next = new Set(selected);
+    if (next.has(opt)) next.delete(opt);
+    else next.add(opt);
+    setSelected(next);
+    onComposeText?.(options.filter((o) => next.has(o)).join(", "));
+  };
+
+  return (
+    <div style={OPTION_BLOCK_WRAP_STYLE}>
+      {options.map((opt, i) => {
+        const active = selected.has(opt);
+        const base = active ? OPTION_BTN_STYLE : OPTION_BTN_INACTIVE_STYLE;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => toggle(opt)}
+            disabled={disabled}
+            style={disabled ? { ...base, ...OPTION_BTN_DISABLED_STYLE } : base}
+          >
+            {active && (
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function firstText(children: ReactNode): string {
   if (typeof children === "string") return children;
   if (Array.isArray(children)) return children.map(firstText).join("");
   return "";
+}
+
+function fenceLangAndCode(children: ReactNode): { lang: string | undefined; code: string } {
+  const codeChild = Array.isArray(children) ? children[0] : children;
+  const props = (codeChild as { props?: { className?: string; children?: ReactNode } })?.props;
+  const lang = /language-(\S+)/.exec(props?.className || "")?.[1];
+  const code = firstText(props?.children).replace(/\n$/, "");
+  return { lang, code };
+}
+
+function renderCodeFence(children: ReactNode) {
+  const { lang, code } = fenceLangAndCode(children);
+  return (
+    <pre style={CODE_BLOCK_PRE_STYLE}>
+      {lang && <div style={CODE_BLOCK_LANG_STYLE}>{lang}</div>}
+      <code style={CODE_BLOCK_CODE_STYLE}>{code}</code>
+    </pre>
+  );
 }
 
 function headingStyle(level: number): CSSProperties {
@@ -107,18 +255,7 @@ const components: Components = {
     </th>
   ),
   td: ({ children }) => <td style={{ padding: "6px 10px", borderBottom: "1px solid var(--nova-border)" }}>{children}</td>,
-  pre: ({ children }) => {
-    const codeChild = Array.isArray(children) ? children[0] : children;
-    const props = (codeChild as { props?: { className?: string; children?: ReactNode } })?.props;
-    const match = /language-(\w+)/.exec(props?.className || "");
-    const code = firstText(props?.children).replace(/\n$/, "");
-    return (
-      <pre style={CODE_BLOCK_PRE_STYLE}>
-        {match && <div style={CODE_BLOCK_LANG_STYLE}>{match[1]}</div>}
-        <code style={CODE_BLOCK_CODE_STYLE}>{code}</code>
-      </pre>
-    );
-  },
+  pre: ({ children }) => renderCodeFence(children),
   code: ({ children }) => <code style={INLINE_CODE_STYLE}>{children}</code>,
 };
 
@@ -188,16 +325,32 @@ export function NovaMarkdown({
   text,
   citations = [],
   onCiteClick,
+  onQuickReply,
+  onComposeText,
+  interactionsDisabled,
 }: {
   text: string;
   citations?: Citation[];
   onCiteClick?: (citation: Citation) => void;
+  onQuickReply?: (text: string) => void;
+  onComposeText?: (text: string) => void;
+  interactionsDisabled?: boolean;
 }) {
   const processedText = useMemo(() => preprocessCitationMarkers(text, citations), [text, citations]);
 
   const linkAwareComponents = useMemo<Components>(
     () => ({
       ...components,
+      pre: ({ children }) => {
+        const { lang, code } = fenceLangAndCode(children);
+        if (lang === QUICK_REPLY_LANG) {
+          return <QuickReplyBlock code={code} onSend={onQuickReply} disabled={interactionsDisabled} />;
+        }
+        if (lang === MULTI_CHOICE_LANG) {
+          return <MultiChoiceBlock code={code} onComposeText={onComposeText} disabled={interactionsDisabled} />;
+        }
+        return renderCodeFence(children);
+      },
       a: ({ children, href }) => {
         if (href?.startsWith(CITATION_HREF_PREFIX)) {
           const citation = citations[Number(href.slice(CITATION_HREF_PREFIX.length))];
@@ -215,7 +368,7 @@ export function NovaMarkdown({
         );
       },
     }),
-    [citations, onCiteClick]
+    [citations, onCiteClick, onQuickReply, onComposeText, interactionsDisabled]
   );
 
   return (

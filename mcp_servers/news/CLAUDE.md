@@ -52,3 +52,12 @@ curl -X POST http://localhost:9003/mcp -H "Content-Type: application/json" \
 
 Add `-H "X-Nova-Business-Units: news"` to pass authorization; omit it to
 verify the auth check actually denies.
+
+## `db.py`'s SELECT-only guard also accepts `WITH` (CTE) queries
+
+Same fix as `mcp_servers/tv/CLAUDE.md`'s "Real bug fixed" section - the
+guard used to reject any `WITH ... SELECT ...` CTE outright, which the
+SQL Analytics Tool's own text-to-SQL step reaches for on any
+comparison-style question (WoW/MoM, etc.), failing those **every time**,
+not occasionally. See that file for the full writeup; the fix and its
+regression test (`tests/test_db.py`) are identical here.

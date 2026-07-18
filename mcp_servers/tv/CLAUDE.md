@@ -64,3 +64,31 @@ curl -X POST http://localhost:9001/mcp -H "Content-Type: application/json" \
 Add `-H "X-Nova-Business-Units: tv"` to pass authorization; omit it to
 verify the auth check actually denies (it should return `isError: true`
 with "Not authorized for MCN TV's data.").
+
+## Real bug fixed: the SQL Analytics Tool rejected its own valid queries
+
+`db.py`'s `run_select` guard originally only accepted a query starting
+with a literal `select`. `tools/sql_analytics.py`'s own text-to-SQL step
+(a nested LLM call, not the main agent) correctly reaches for a `WITH ...
+SELECT ...` CTE for any question involving a comparison (week-over-week,
+month-over-month, "latest vs. last 7/30 days", etc.) - a completely
+safe, read-only query, but one the guard rejected outright with "Only
+SELECT statements are allowed.", **deterministically, every time**, not
+as an occasional model slip. Reproduced directly against the live
+service (bypassing the agent) to confirm it wasn't a backend/agent bug:
+the same question phrased simply ("last 7 days total") produced a plain
+`SELECT` and worked; the same question asking for a WoW/MoM comparison
+produced a `WITH` CTE and failed 100% of the time. Fixed by also
+accepting a `with`-prefixed query - the existing forbidden-keyword check
+(`insert`/`update`/`delete`/...) still runs afterward and would catch a
+data-modifying CTE (Postgres allows `WITH x AS (DELETE FROM ... RETURNING
+*) SELECT * FROM x`), so this doesn't weaken the actual safety guarantee,
+only stops rejecting a legitimate query shape. Same guard, same fix,
+duplicated identically in `mcp_servers/plus/db.py` and
+`mcp_servers/news/db.py`. Added a regression test
+(`tests/test_db.py::test_accepts_a_cte_query_and_reaches_the_database`,
+same pattern in all 3 units) that stubs the DB connection to assert the
+guard lets a CTE through instead of raising `NonSelectQueryError` first.
+Verified against the live stack: the exact previously-failing question
+now returns real revenue rows with WoW/MoM deltas, both calling the tool
+directly and through a full chat request via the backend agent.

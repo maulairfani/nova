@@ -35,15 +35,18 @@ export function ChatInput({
   onSend,
   disabled,
   blockedReason,
+  composeRequest,
 }: {
   onSend: (text: string, forceTools: FeatureKey[]) => void;
   disabled: boolean;
   blockedReason?: string | null;
+  composeRequest?: { text: string; nonce: number } | null;
 }) {
   const [value, setValue] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeFeatures, setActiveFeatures] = useState<Set<FeatureKey>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastComposeNonceRef = useRef(0);
   const composerDisabled = disabled || !!blockedReason;
 
   useEffect(() => {
@@ -53,6 +56,18 @@ export function ChatInput({
     el.style.overflowY = el.scrollHeight > MAX_INPUT_HEIGHT ? "auto" : "hidden";
     el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }, [value]);
+
+  // Backs the `nova-multi-choice` message block (NovaMarkdown.tsx): every
+  // toggle there re-sends the full selected set here instead of opening a
+  // separate confirm button, so sending still goes through this composer's
+  // existing Send button. `nonce` (not just `text`) so re-selecting the
+  // exact same set twice in a row still re-triggers the effect.
+  useEffect(() => {
+    if (!composeRequest || composeRequest.nonce === lastComposeNonceRef.current) return;
+    lastComposeNonceRef.current = composeRequest.nonce;
+    setValue(composeRequest.text);
+    textareaRef.current?.focus();
+  }, [composeRequest]);
 
   const toggleFeature = (key: FeatureKey) => {
     setActiveFeatures((prev) => {

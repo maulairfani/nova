@@ -220,6 +220,25 @@ clicking "View document" on a citation card opens the real document's
 content in the existing `DocumentPreviewModal`, stacked over the Sources
 panel.
 
+## Clickable reply options: quick-replies + multi-choice (2026-07-18)
+
+`app/agent/prompts.py`'s `SYSTEM_PROMPT` gained instructions for two
+fenced-code-block markers the frontend renders as clickable buttons instead
+of plain code (`lib/NovaMarkdown.tsx`'s `pre` override on the frontend,
+detected by language tag rather than a text regex): ` ```nova-quick-replies ```
+(one option per line, clicking sends it immediately) and
+` ```nova-multi-choice ``` ` (clicking toggles selection; the frontend
+writes the joined selection into the existing composer rather than adding
+a separate confirm button). This is pure prompt-text - no backend code
+change beyond the prompt string, since the SSE stream already passes
+through arbitrary markdown untouched. The prompt explicitly tells the
+model the example option lines shown are just format examples to replace,
+not literal content to reuse, to reduce the risk of a small model echoing
+the example verbatim regardless of the actual conversation. See
+`frontend/CLAUDE.md`'s matching section for the frontend implementation
+and a real state-loss bug it surfaced (and fixed) in `NovaMarkdown.tsx`'s
+memoization.
+
 ## Manage Documents (documents.py)
 
 Real CRUD on the knowledge base's source files, backed by the same
