@@ -220,7 +220,13 @@ export function Sidebar({
                             >
                               Rename
                             </div>
-                            <div onClick={() => onDelete(conv.id)} style={{ ...dropdownItemStyle, color: "var(--nova-danger)" }}>
+                            <div
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                onDelete(conv.id);
+                              }}
+                              style={{ ...dropdownItemStyle, color: "var(--nova-danger)" }}
+                            >
                               Delete
                             </div>
                           </div>

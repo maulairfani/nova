@@ -7,6 +7,7 @@ import { BP_SHELL_MAX } from "../lib/breakpoints";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import {
   Conversation,
+  ConversationNotFoundError,
   deleteConversation,
   getConversationMessages,
   listConversations,
@@ -203,6 +204,19 @@ export function ChatWindow() {
     router.push("/");
   };
 
+  // Redirect away from a conversation id that's gone (just deleted, or a
+  // dead/stale ?c=<id> visited directly) — a hard navigation, not
+  // router.replace(). router.replace("/") reliably lost the race against
+  // Next's own history normalization here (verified: it left the dead id
+  // sitting in the address bar in both the "delete the active conversation"
+  // and the "direct-navigate to a dead id" cases), which is the exact
+  // "doesn't redirect" symptom this was meant to fix.
+  // window.location.replace() can't lose that race since it bypasses the
+  // App Router's client-side history handling entirely.
+  const redirectHome = () => {
+    window.location.replace("/");
+  };
+
   const loadConversation = async (id: string) => {
     const token = getToken();
     if (!token) return;
@@ -213,7 +227,11 @@ export function ChatWindow() {
     try {
       const stored = await getConversationMessages(token, id);
       setMessages(stored);
-    } catch {
+    } catch (err) {
+      if (err instanceof ConversationNotFoundError) {
+        redirectHome();
+        return;
+      }
       // leave the (empty) message list — the conversation still opens
     }
   };
@@ -237,7 +255,7 @@ export function ChatWindow() {
     const token = getToken();
     if (!token) return;
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (id === activeConvId) newChat();
+    if (id === activeConvId) redirectHome();
     try {
       await deleteConversation(token, id);
     } catch {

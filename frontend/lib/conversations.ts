@@ -6,12 +6,17 @@ export interface Conversation {
   updated_at: string;
 }
 
+export class ConversationNotFoundError extends Error {}
+
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BACKEND_URL}/api/v1${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...init?.headers },
   });
-  if (!response.ok) throw new Error(`Request to ${path} failed: ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 404) throw new ConversationNotFoundError(`Request to ${path} failed: 404`);
+    throw new Error(`Request to ${path} failed: ${response.status}`);
+  }
   if (response.status === 204) return undefined as T;
   return response.json();
 }
